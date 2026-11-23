@@ -8,7 +8,7 @@ export type Agenda = 'faithful' | 'poet' | 'jealous' | 'literalist' | 'gossip';
 export type ActorKind = 'human' | 'companion' | 'gatekeeper' | 'scout';
 /** Animation state names. Humans: idle|walk|interact|wave. Companions: idle|walk|listen|think|squeeze|deliver|sulk|read. */
 export type Anim = 'idle' | 'walk' | 'interact' | 'wave' | 'listen' | 'think' | 'squeeze' | 'deliver' | 'sulk' | 'read';
-export type CompanionStatus = 'following' | 'listening' | 'thinking' | 'walking' | 'reading' | 'chamber' | 'returning' | 'delivering';
+export type CompanionStatus = 'following' | 'listening' | 'thinking' | 'walking' | 'reading' | 'chamber' | 'returning' | 'delivering' | 'away' | 'waiting_reply';
 
 export interface ActorState {
   id: string;
@@ -20,6 +20,8 @@ export interface ActorState {
   anim: Anim;
   name?: string;
   color?: number;
+  /** Couriers: whose courier this is (they cross sides). */
+  owner?: Side;
   /** 0..1 squeeze progress for companions passing the keyhole. */
   squeeze?: number;
 }
@@ -80,6 +82,8 @@ export type C2S =
   | { t: 'hello'; codename?: string; takes: Record<string, number>; interests: string[]; matchCode?: string; demo?: boolean }
   | { t: 'move'; p: V2; ry: number; anim: Anim }
   | { t: 'tell'; text: string } // instruction to your own companion
+  /** Send the visiting courier (the stranger's) back home carrying your reply. */
+  | { t: 'send_back'; text: string }
   | { t: 'send_read'; objectId: string } // send companion to read a thread
   | { t: 'read'; objectId: string } // human opens an object -> server replies 'object'
   | { t: 'lock_submit'; lockId: LockId; answer: string | string[] }
@@ -146,6 +150,7 @@ export type S2C =
         /** Petition III: did each side predict the other correctly, and how close on strength. */
         readRight: boolean;
         deepRead: boolean;
+        rows?: { question: string; you: number; them: number }[];
       };
       callSeconds: number;
       offerer: boolean;
@@ -162,6 +167,10 @@ export type S2C =
       /** Same shape as unlock.resonance (you/them relative to the recipient). */
       resonance?: { agreed: number; total: number; biggestSplit: { question: string; you: number; them: number } | null; readRight: boolean; deepRead: boolean };
     }
+  /** What your own courier CLAIMS it will carry (may differ from what it delivers). */
+  | { t: 'courier_claim'; courierId: string; words: string[]; text: string }
+  /** The stranger's courier is at your side waiting for a reply (or null when it leaves). */
+  | { t: 'holding'; courier: { id: string; name: string; color: number; agendaHint: string } | null }
   | { t: 'quest'; title: string; steps: QuestStep[] }
   /** Narrative intro shown once at drop-in (the Moderator's summons). */
   | { t: 'briefing'; lines: string[] }

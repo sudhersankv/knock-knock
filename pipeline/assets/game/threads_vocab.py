@@ -75,7 +75,18 @@ for p in chosen:
     for rank, (s, w) in enumerate(scored[:12], 1):
         vocab_rows.append((p[0], w, float(s), rank))
 
+# Vocab for every post (top 12), so any post promoted to a thread later (e.g. a debate) gets a real vocabulary.
+all_rows = []
+for p in posts:
+    tf = Counter(docs[p[0]])
+    total = sum(tf.values()) or 1
+    sc = sorted((((c / total) * math.log((N + 1) / (df[w] + 1)) + 1e-9 * len(w), w) for w, c in tf.items()), reverse=True)[:12]
+    for rank, (s_, w) in enumerate(sc, 1):
+        all_rows.append((p[0], w, float(s_), rank))
+
 con.execute("create schema if not exists game")
+con.execute("create or replace table game.vocab_all (thread_id varchar, word varchar, tfidf_score double, rank integer)")
+con.executemany("insert into game.vocab_all values (?,?,?,?)", all_rows)
 con.execute("create or replace table game.threads (thread_id varchar, submolt varchar, title varchar, author varchar, body varchar, url varchar, upvotes integer, comments integer, created_at varchar)")
 con.executemany("insert into game.threads values (?,?,?,?,?,?,?,?,?)", thread_rows)
 con.execute("create or replace table game.vocab (thread_id varchar, word varchar, tfidf_score double, rank integer)")

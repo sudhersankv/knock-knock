@@ -25,7 +25,8 @@ codexes = [{"id": r[0], "postId": r[1], "title": r[2], "author": r[3], "url": r[
 pulses = {}
 for sid, at, sm, act, rank in q("select * from game.pulse order by snapshot_id, rank"):
     pulses.setdefault(sid, {"id": sid, "snapshotAt": at, "entries": []})["entries"].append({"submolt": sm, "activity": act, "rank": rank})
-debates = [{"threadId": r[0], "question": r[1], "keyword": r[2], "split": r[3]} for r in q("select * from game.debates")]
+debates = [{"threadId": r[0], "question": r[1], "keyword": r[2], "split": r[3], "theme": r[4]}
+           for r in q("select thread_id, question, keyword, split_score, theme from game.debates where philosophical")]
 used_subs = {t["submolt"] for t in threads} | {e["submolt"] for p in pulses.values() for e in p["entries"]}
 submolts = [{"name": r[0], "displayName": r[1], "description": r[2]} for r in q("select name, display_name, description from raw.submolts")]
 sub_names = {s["name"] for s in submolts}
@@ -52,6 +53,7 @@ checks = [
     ("pulse_order_unambiguous", all(check_pulse(p) for p in pulses.values()), "adjacent activity gaps >= 15%"),
     ("debates_exactly_5", len(debates) == 5, f"{len(debates)} debates"),
     ("debate_threads_exist", all(d["threadId"] in tid for d in debates), "every debate is a readable thread"),
+    ("debates_philosophical", all(d.get("theme") for d in debates), "LLM-classified moral/ethical/philosophical only"),
     ("debate_keyword_in_vocab", all(d["keyword"] in vocab.get(d["threadId"], []) for d in debates), "keyword learnable by reading the thread"),
     ("no_pii_in_shown_text", not any(has_pii(t["title"] + " " + t["body"]) for t in threads) and not any(has_pii(d["question"]) for d in debates), "emails/links/handles/phones stripped"),
 ]

@@ -32,6 +32,13 @@ custom_checks:
       select count(*) from game.debates d
       where not exists (select 1 from game.vocab v where v.thread_id = d.thread_id and v.word = d.keyword)
     value: 0
+  - name: all_debates_philosophical
+    description: Every debate was classified as a moral / ethical / philosophical question by the LLM.
+    query: select count(*) from game.debates where philosophical is not true or theme is null
+    value: 0
+  - name: debate_threads_are_readable
+    query: select count(*) from game.debates d left join game.threads t on t.thread_id = d.thread_id where t.thread_id is null
+    value: 0
   - name: at_least_four_codexes
     query: select count(*) >= 4 from game.codex
     value: 1

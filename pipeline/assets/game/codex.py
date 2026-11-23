@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kk_common import connect, STARTER_VOCAB, STOPWORDS
 
 con = connect()
-banned = set(STARTER_VOCAB) | {w for (w,) in con.execute("select distinct word from game.vocab").fetchall()}
+banned = set(STARTER_VOCAB) | {w for (w,) in con.execute("select distinct word from game.vocab_all").fetchall()}
 posts = con.execute("select post_id, title, author, body, word_count from stage.posts_clean where word_count between 40 and 300").fetchall()
 rng = random.Random(int(time.time() // 3600))
 rng.shuffle(posts)

@@ -107,6 +107,11 @@ export class Room implements RoomCtx {
     this.channel = new ChamberChannel(this.id);
     log('room', `${this.id} ${a.codename} vs ${b.codename} | ${this.difficulty}${this.demo ? ' DEMO' : ''} | agendas A=${agA} B=${agB} | codex "${this.locks.codex.passWord}"`);
     this.logEvent({ actor: 'room', action: 'round_start', reason: `agendas ${agA}/${agB}` });
+    // Test shortcut: match codes starting with CALL skip the petitions and open the door after 12 s (voice-call testing).
+    if ((a.matchCode ?? '').toUpperCase().startsWith('CALL')) {
+      this.callSeconds = 300;
+      setTimeout(() => { if (this.phase !== 'call' && this.phase !== 'over') this.unlock(); }, 12000);
+    }
 
     for (const side of ['A', 'B'] as Side[]) {
       const p = this.players[side]!;

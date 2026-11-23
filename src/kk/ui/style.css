@@ -620,3 +620,33 @@ body:has(.itemget, .journal, .modal-wrap, .reveal) #world-ui { opacity: 0; trans
   .touch .visiting .vm { font-size: 17px; margin-top: 6px; }
   .touch .visiting .vb { margin-top: 8px; }
 }
+
+/* ---------- landing: match codes ---------- */
+.code-row { display: grid; gap: 6px; justify-items: center; }
+.code-line { display: flex; gap: 10px; align-items: center; }
+.code-share { max-width: 420px; text-align: center; }
+.agegate.nudge { color: var(--gold); }
+/* ---------- how to play guide ---------- */
+.howto { width: min(780px, 94vw); max-height: min(88vh, 860px); display: flex; flex-direction: column; }
+.ht-tabs { display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: center; margin: 6px 0 10px; border-bottom: 1px solid var(--line-faint); }
+.ht-tab { background: none; border: 0; color: var(--text-dim); font: 600 14px var(--f-ui); padding: 8px 2px; cursor: pointer; border-bottom: 2px solid transparent; }
+.ht-tab.on { color: var(--gold); border-bottom-color: var(--gold); }
+.ht-tab:focus-visible { outline: 1px solid var(--gold); }
+.ht-body { overflow-y: auto; min-height: 0; flex: 1; padding: 2px 4px; }
+.ht-body h3 { margin: 4px 0 0; text-align: center; font: 400 24px var(--f-title); color: var(--cream); }
+.ht-body p { font: 400 15.5px/1.6 var(--f-ui); color: var(--cream); max-width: 64ch; margin: 10px auto; }
+.ht-body .goal1 { margin-top: 6px; }
+.ht-body .hl { margin: 12px auto; padding-left: 20px; display: grid; gap: 10px; max-width: 66ch; font: 400 15px/1.55 var(--f-ui); color: var(--text-dim); }
+.ht-body .hl b { color: var(--cream); font-weight: 700; }
+.ht-body .hl.num { list-style: upper-roman; }
+.ht-body .hl li::marker { color: var(--gold); }
+.hx { margin: 14px auto 4px; max-width: 60ch; border: 1px solid var(--line-faint); border-radius: 10px; padding: 10px 14px; display: grid; gap: 8px; background: rgba(255,255,255,.025); }
+.hx-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: baseline; }
+.hx-who { font: 700 13px var(--f-ui); color: var(--gold); }
+.hx-said { font: italic 400 15px/1.45 var(--f-doc); color: var(--cream); }
+.ht-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-faint); flex-wrap: wrap; }
+@media (max-width: 560px) { .hx-row { grid-template-columns: 1fr; gap: 2px; } }
+.ht-body { scrollbar-width: thin; scrollbar-color: rgba(243,235,211,.28) transparent; }
+.ht-body::-webkit-scrollbar { width: 6px; }
+.ht-body::-webkit-scrollbar-thumb { background: rgba(243,235,211,.28); border-radius: 3px; }
+.ht-body::-webkit-scrollbar-track { background: transparent; }

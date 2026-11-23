@@ -10,7 +10,8 @@ import { Sfx, speak } from './game/sfx';
 import { Voice } from './game/voice';
 import { Call } from './game/call';
 import { Hud, WorldLabels, nameplate, kc } from './ui/hud';
-import { showLanding, showOnboarding, QueueScreen, showHowTo } from './ui/screens';
+import { showLanding, showOnboarding, QueueScreen, showHowTo, newMatchCode } from './ui/screens';
+let practiceMode = false;
 import { showReader, showTerminal, closeModal, modalOpen, modalKind } from './ui/modals';
 import { CallUi, showReveal, settledLine, readLine, type Debate, type Resonance } from './ui/endgame';
 import { showDialogue, dialogueAdvance, dialogueOpen, showItemGet, tipOnce, tipCard } from './ui/dialogue';
@@ -170,7 +171,9 @@ async function boot() {
     answers = { takes: {}, interests: welcome.interests.slice(0, 3) };
   } else answers = await ob;
   queue = new QueueScreen(codename);
-  net.send({ t: 'hello', codename, takes: answers.takes, interests: answers.interests, matchCode: (lr as { matchCode?: string }).matchCode, demo: (lr as { demo: boolean }).demo || params.has('demo') });
+  practiceMode = !!(lr as { practice?: boolean }).practice;
+  const matchCode = practiceMode ? `PRACTICE-${newMatchCode()}` : (lr as { matchCode?: string }).matchCode;
+  net.send({ t: 'hello', codename, takes: answers.takes, interests: answers.interests, matchCode, demo: (lr as { demo: boolean }).demo || params.has('demo') });
 }
 
 function waitWelcome() {
@@ -281,7 +284,7 @@ function wireNet() {
     if (!m.lines.length) return;
     void showDialogue('The Moderator', m.lines, !!SHOT).then(() => {
       if (SHOT && SHOT !== 'tutorial') return;
-      if (!tutorialDone() || SHOT === 'tutorial') tut.start();
+      if (practiceMode || !tutorialDone() || SHOT === 'tutorial') tut.start();
       else hud?.goal('Settle the Petitions', ['Hold ', kc('C'), ' and tell your courier what to carry']);
     });
   });

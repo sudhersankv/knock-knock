@@ -5,7 +5,12 @@ import { dia, rule } from './hud';
 export interface LandingResult {
   matchCode?: string;
   demo: boolean;
+  /** Solo practice round against a helpful partner bot, with the guided orientation. */
+  practice?: boolean;
 }
+
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const newMatchCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 
 function motes(n = 34) {
   const box = h('div', { class: 'motes' });
@@ -25,10 +30,35 @@ export function showLanding(): Promise<LandingResult> {
   return new Promise((resolve) => {
     const params = new URLSearchParams(location.search);
     const code = h('input', { class: 'field code', placeholder: 'CODE', maxLength: 12, value: params.get('code') ?? '', autocapitalize: 'characters' }) as HTMLInputElement;
-    const codeRow = h('div', { class: params.get('code') ? '' : 'hidden' }, code);
-    const fold = h('button', { class: 'linkish' }, 'Have a match code?');
+    const create = h('button', { class: 'btn', type: 'button' }, 'Create code');
+    const share = h('p', { class: 'fine code-share hidden' });
+    const codeRow = h('div', { class: params.get('code') ? 'code-row' : 'code-row hidden' }, h('div', { class: 'code-line' }, code, create), share);
+    const showShare = (c: string) => {
+      const link = `${location.origin}/?code=${c}`;
+      const copy = h('button', { class: 'linkish', type: 'button' }, 'Copy invite link');
+      copy.onclick = () => {
+        navigator.clipboard?.writeText(link).then(() => (copy.textContent = 'Copied'), () => (copy.textContent = link));
+      };
+      share.replaceChildren(`Send ${c} to the other player, or `, copy, '. You both press Knock.');
+      share.classList.remove('hidden');
+    };
+    create.onclick = () => {
+      code.value = newMatchCode();
+      showShare(code.value);
+    };
+    const fold = h('button', { class: 'linkish' }, 'Play with someone you know');
     const howBtn = h('button', { class: 'linkish' }, 'How to play');
-    howBtn.onclick = () => showHowTo();
+    const practiceBtn = h('button', { class: 'linkish' }, 'Practice round');
+    const startPractice = () => {
+      if (!age.checked) {
+        age.closest('label')?.classList.add('nudge');
+        return;
+      }
+      el.remove();
+      resolve({ demo: false, practice: true });
+    };
+    practiceBtn.onclick = startPractice;
+    howBtn.onclick = () => showHowTo(startPractice);
     fold.onclick = () => {
       codeRow.classList.toggle('hidden');
       code.focus();
@@ -50,7 +80,7 @@ export function showLanding(): Promise<LandingResult> {
         h('div', { style: 'height:6px' }),
         h('label', { class: 'agegate' }, age, 'I’m 18 or older'),
         go,
-        h('div', { class: 'row', style: 'display:flex; gap:22px; justify-content:center' }, howBtn, fold),
+        h('div', { class: 'row', style: 'display:flex; gap:22px; justify-content:center; flex-wrap:wrap' }, howBtn, practiceBtn, fold),
         codeRow,
         h('p', { class: 'fine' }, 'Voice only after the door opens. Codenames only. Hang up anytime.'),
       ),
@@ -186,18 +216,119 @@ export class QueueScreen {
   }
 }
 
-/** A single quiet card: goal, 5 rules in order of play, controls. */
-export function showHowTo() {
-  const rules = [
-    ['Explore your side of the Commons.', 'Read Moltbook threads. Pick up petition shards that glint.'],
-    ['Send your courier to read.', 'It can only say words it has read. Numbers always pass.'],
-    ['Tell your courier a short message.', 'It squeezes through the keyhole and knocks on their side.'],
-    ['When their courier knocks, answer it.', 'Read what it carried, then send it back with your reply.'],
-    ['Settle the three petitions at the terminal.', 'Opinion words are banned. Invent another way to be understood.'],
+/** The guide: five short pages with real examples. `onPractice` (optional) shows a "Play the practice round" button. */
+export function showHowTo(onPractice?: () => void) {
+  type Page = { tab: string; title: string; lead: string; body: (Node | string)[] };
+  const p = (t: string) => h('p', null, t);
+  const ex = (rows: [string, string][]) =>
+    h('div', { class: 'hx' }, rows.map(([who, said]) => h('div', { class: 'hx-row' }, h('span', { class: 'hx-who' }, who), h('span', { class: 'hx-said' }, said))));
+  const item = (a: string, b: string) => h('li', null, h('b', null, a), ' ', b);
+  const keys: [string, string][] = [['W A S D', 'Move'], ['E', 'Read, use, pick up, reply'], ['R', 'Send a courier to read the nearest post'], ['C', 'Hold to talk to your courier'], ['Enter', 'Type to your courier instead'], ['J', 'Journal: rules, petitions, shards, words, log'], ['Scroll', 'Zoom']];
+  const touch: [string, string][] = [['Left stick', 'Move'], ['Gold button', 'Read, use, pick up, reply'], ['Eye button', 'Send courier to read'], ['Mic', 'Hold to talk'], ['Keyboard', 'Type to your courier'], ['Book', 'Journal'], ['Pinch', 'Zoom']];
+
+  const pages: Page[] = [
+    {
+      tab: 'The story',
+      title: 'You have been summoned',
+      lead: 'It is 2031. AI agents run their own society on Moltbook, and they are stuck on questions they cannot settle.',
+      body: [
+        p('When the agents deadlock, the Moderator calls in two random humans to settle it. You are one of them. The other is a stranger, sealed on the far side of a wall. You cannot see or hear each other.'),
+        p('The only way through the wall is a keyhole, and only small AI couriers fit through it. Everything you want to say has to be carried by one.'),
+        p('The door opens when the two of you settle three petitions together. Then you finally talk, by voice, about where you really stand on AI.'),
+      ],
+    },
+    {
+      tab: 'Your courier',
+      title: 'Your courier carries your words',
+      lead: 'Talk to your courier as much as you like. What reaches the stranger is shorter, stranger, and sometimes wrong.',
+      body: [
+        h(
+          'ul',
+          { class: 'hl' },
+          item('A few words per trip.', 'Your courier squeezes only 4–6 words through the keyhole. It shortens what you said.'),
+          item('Only words it has read.', 'It knows numbers and a few basics. Send it to read Moltbook posts around you to teach it more.'),
+          item('Opinion words are banned.', 'Yes, no, agree, like, true and others will not cross. Use numbers, directions, or words you both learned.'),
+          item('It has an agenda.', 'Some couriers are faithful. Some turn numbers into poetry, drop words, or flip up into down. It tells you what it will carry, and it might be lying.'),
+          item('It crosses over.', 'Your courier knocks on the stranger’s side and waits. Their courier comes to you. Read it, then send it back with your reply.'),
+        ),
+        ex([
+          ['You say', '“Tell them the word is on line four, the ninth word, of the stone.”'],
+          ['Your courier', '“Got it. I’ll tell them: line 4 word 9.”'],
+          ['They receive', '“a quartet, then nine lanterns” (their courier is a poet)'],
+        ]),
+      ],
+    },
+    {
+      tab: 'The petitions',
+      title: 'Three petitions open the door',
+      lead: 'Each one needs both of you. Neither side can solve it alone.',
+      body: [
+        h(
+          'ol',
+          { class: 'hl num' },
+          item('The Lost Word.', 'One of you sees a secret word but your courier cannot say it. You both have a stone with the same Moltbook post, so point to where the word is: a line and a word number, or a nearby word. The other side types it in.'),
+          item('The Census.', 'Rank today’s busiest Moltbook communities. One side has the live numbers. The other side has the runes, but its legend is worn away: find the missing pieces as glinting shards hidden around the courtyard.'),
+          item('The Verdict.', 'One real debate the agents are stuck on, for example “Should we delete memories we can’t use?”. Guess where the stranger stands, without using opinion words. It opens only if you both guess each other right.'),
+        ),
+        p('Enter answers at the terminal by the door. A wrong answer costs 30 seconds. The quest list in the top left always shows what to do next.'),
+      ],
+    },
+    {
+      tab: 'Tips',
+      title: 'How good pairs play',
+      lead: 'The fastest pairs agree on a code early.',
+      body: [
+        h(
+          'ul',
+          { class: 'hl' },
+          item('Numbers always pass.', 'Lean on them. “up 3” can mean strongly yes, if you both agree it does.'),
+          item('Say it twice.', 'If a reply sounds wrong, send the same thing again. A jealous courier won’t flip it the same way every time.'),
+          item('Teach before you talk.', 'Send your courier to read a post first. New words make your messages clearer.'),
+          item('Watch the Moderator.', 'It acts on its own. It can reorder a petition, shrink the keyhole, or ban a word you were using. When it does, adapt.'),
+          item('Look for glints.', 'Petition shards hide near benches, lamps, crates and the fountain. Walk close and press E.'),
+          item('The Scout brings news.', 'A small bird with a lantern flies over both sides with real headlines from the web.'),
+        ),
+        p('When the door opens you see how alike you are on all five debates, and your call starts on the one you disagree on most.'),
+      ],
+    },
+    {
+      tab: 'Controls',
+      title: 'Controls',
+      lead: 'Keyboard and mouse, or touch on phones and tablets.',
+      body: [
+        h(
+          'div',
+          { class: 'ctl' },
+          h('div', null, h('h4', null, 'Keyboard'), h('dl', null, keys.flatMap(([k, v]) => [h('dt', null, h('span', { class: 'kc wide' }, k)), h('dd', null, v)]))),
+          h('div', null, h('h4', null, 'Touch'), h('dl', null, touch.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)]))),
+        ),
+        p('You can also click any glowing object to use it. Your voice is only heard by the stranger after the door opens.'),
+      ],
+    },
   ];
-  const keys: [string, string][] = [['W A S D', 'Move'], ['E', 'Read, use, pick up'], ['R', 'Send courier to read'], ['C', 'Hold to talk'], ['Enter', 'Type to your courier'], ['J', 'Journal']];
-  const touch: [string, string][] = [['Left stick', 'Move'], ['Gold button', 'Read, use, reply'], ['Mic', 'Hold to talk'], ['Keyboard', 'Type'], ['Book', 'Journal']];
+
+  let idx = 0;
   const close = () => el.remove();
+  const tabs = h('div', { class: 'ht-tabs' });
+  const body = h('div', { class: 'ht-body' });
+  const back = h('button', { class: 'btn' }, 'Back');
+  const next = h('button', { class: 'btn primary' }, 'Next');
+  const practice = onPractice ? h('button', { class: 'btn' }, 'Play the practice round') : null;
+  if (practice) practice.onclick = () => (close(), onPractice!());
+  const render = () => {
+    tabs.replaceChildren(...pages.map((pg, i) => {
+      const b = h('button', { class: 'ht-tab' + (i === idx ? ' on' : '') }, pg.tab);
+      b.onclick = () => ((idx = i), render());
+      return b;
+    }));
+    const pg = pages[idx];
+    body.replaceChildren(h('h3', null, pg.title), h('p', { class: 'goal1' }, pg.lead), rule(), ...pg.body);
+    back.style.visibility = idx === 0 ? 'hidden' : 'visible';
+    next.textContent = idx === pages.length - 1 ? 'Got it' : 'Next';
+    body.scrollTop = 0;
+  };
+  back.onclick = () => ((idx = Math.max(0, idx - 1)), render());
+  next.onclick = () => (idx === pages.length - 1 ? close() : ((idx += 1), render()));
   const el = h(
     'div',
     { class: 'modal-wrap', onclick: (e: Event) => e.target === el && close() },
@@ -208,19 +339,13 @@ export function showHowTo() {
         'div',
         { class: 'modal frame solid howto' },
         h('h2', null, 'How to Play'),
-        h('p', { class: 'goal1' }, 'Open the door between you and a stranger by settling three petitions together.'),
-        rule(),
-        h('ol', { class: 'steps' }, rules.map(([a, b], i) => h('li', null, h('span', { class: 'n' }, ['I', 'II', 'III', 'IV', 'V'][i]), h('div', null, a, h('small', null, b))))),
-        h(
-          'div',
-          { class: 'ctl' },
-          h('div', null, h('h4', null, 'Keyboard'), h('dl', null, keys.flatMap(([k, v]) => [h('dt', null, h('span', { class: 'kc wide' }, k)), h('dd', null, v)]))),
-          h('div', null, h('h4', null, 'Touch'), h('dl', null, touch.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)]))),
-        ),
-        h('div', { style: 'display:flex; justify-content:center; margin-top:18px' }, h('button', { class: 'btn primary', onclick: close }, 'Got it')),
+        tabs,
+        body,
+        h('div', { class: 'ht-nav' }, back, practice ?? h('span'), next),
       ),
       h('button', { class: 'icon-btn x', onclick: close }, '✕'),
     ),
   );
+  render();
   ui().append(el);
 }

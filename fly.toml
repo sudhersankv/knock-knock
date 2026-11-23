@@ -1,6 +1,6 @@
 # Knock Knock on Fly.io — one always-on machine (rooms live in memory).
 # Secrets: fly secrets set LLM_BASE_URL=... LLM_API_KEY=... LLM_FAST=... LLM_STRONG=... BAND_API_KEY=... TELEM_API_KEY=...
-app = "knock-knock-1o6p"
+app = "knockknock"
 primary_region = "sjc"
 
 [build]

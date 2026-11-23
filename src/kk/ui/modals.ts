@@ -109,15 +109,33 @@ function syncBar(l: LockInfo) {
 }
 
 /** The Petition terminal: one section per petition, inputs only where this side enters. */
-export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: string | string[]) => void, tick: () => void = () => {}) {
+/** One plain line of "what to do" plus a tiny example, per petition and side. */
+function howTo(l: LockInfo): [string, string] | null {
+  if (l.status === 'open') return null;
+  if (l.id === 'codex') return l.secret ? ['Point them to your word on the stone. Type the word they point you to.', `e.g. tell your courier: line ${l.secret.line} word ${l.secret.wordNo}`] : ['Type the word they point you to on the stone.', 'e.g. they send “line 10 word 3”: count it on your stone'];
+  if (l.id === 'pulse') return l.input === 'order' ? ['Ask them which community is busiest, then put these in order.', 'e.g. tell your courier: which is busiest'] : ['Read your Census and send them the order, busiest first.', 'e.g. tell your courier: general then builds then ai'];
+  if (l.id === 'common') return ['Tell them where you stand without opinion words. Then guess where they stand.', 'e.g. tell your courier: up 2 (for “fairly yes”)'];
+  return null;
+}
+
+export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: string | string[]) => void, tick: () => void = () => {}, onCensus?: () => void) {
   // on small screens, petitions you can act on come first
   const small = innerHeight < 560 || innerWidth < 700;
   const ordered = small ? [...locks].sort((a, b) => Number(b.enterHere && b.status !== 'open') - Number(a.enterHere && a.status !== 'open')) : locks;
   const sections = ordered.map((l) => {
     const label = l.status === 'open' ? 'settled' : l.status === 'waiting' ? 'waiting' : l.status === 'failed' ? 'rejected' : 'open';
-    const sec = h('div', { class: 'term-lock' }, h('h4', null, dia(l.status === 'open' ? 'fill' : ''), l.title, h('span', { class: `status-pill ${l.status}` }, label)), h('p', null, l.prompt));
+    const how = howTo(l);
+    const sec = h('div', { class: 'term-lock' }, h('h4', null, dia(l.status === 'open' ? 'fill' : ''), l.title, h('span', { class: `status-pill ${l.status}` }, label)), how ? h('p', { class: 'todo' }, how[0], h('span', { class: 'eg' }, how[1])) : h('p', null, l.prompt));
+    if (l.secret && l.status !== 'open') sec.append(h('div', { class: 'secret' }, h('span', { class: 'sl' }, 'Your hidden word'), h('b', null, l.secret.word.toUpperCase()), h('span', { class: 'sw' }, `line ${l.secret.line}, word ${l.secret.wordNo} on the stone`)));
+    if (l.id === 'pulse' && l.input === 'none' && l.status !== 'open' && onCensus) {
+      const b = h('button', { class: 'btn small' }, 'Open your Census');
+      b.onclick = onCensus;
+      sec.append(h('div', { class: 'term-row' }, b, h('span', { class: 'fine', style: 'text-align:left' }, 'Send them this order.')));
+    }
     if (l.status !== 'open') sec.append(syncBar(l));
     if (l.banned?.length && l.status !== 'open') sec.append(bannedLine(l.banned));
+    const wh = (l as LockInfo & { whisper?: string }).whisper;
+    if (wh && l.status !== 'open') sec.append(h('div', { class: 'whisper' }, h('span', { class: 'wi mod' }, '◈'), h('span', null, h('b', null, 'The Moderator whispers: '), `“${wh}”`), h('span', { class: 'unv', title: 'Unverified: the Moderator wants this to go its way' }, '?')));
     if (l.status === 'open' || !l.enterHere || l.input === 'none') return sec;
     if (l.input === 'word') {
       const inp = h('input', { maxLength: 14, spellcheck: false, autocomplete: 'off', autocapitalize: 'off', placeholder: '' }) as HTMLInputElement;
@@ -129,7 +147,33 @@ export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: str
         e.stopPropagation();
         if (e.key === 'Enter') fire();
       });
-      sec.append(h('div', { class: 'term-row' }, h('div', { class: 'slots' }, inp), go));
+      sec.append(h('div', { class: 'term-row' }, h('div', null, h('div', { class: 'sl2' }, 'Their hidden word'), h('div', { class: 'slots' }, inp)), go));
+    } else if (l.input === 'order') {
+      const opts = l.options ?? [];
+      const order: string[] = [];
+      const go = h('button', { class: 'btn primary small', disabled: true }, 'Seal order') as HTMLButtonElement;
+      const chips = opts.map((o) => {
+        const b = h('button', { class: 'ochip' }, h('span', { class: 'ob' }), o.label);
+        b.onclick = () => {
+          const i = order.indexOf(o.id);
+          if (i >= 0) order.splice(i, 1);
+          else order.push(o.id);
+          render();
+          tick();
+        };
+        return { b, o };
+      });
+      const render = () => {
+        for (const { b, o } of chips) {
+          const i = order.indexOf(o.id);
+          b.classList.toggle('on', i >= 0);
+          (b.querySelector('.ob') as HTMLElement).textContent = i >= 0 ? ['1st', '2nd', '3rd', '4th'][i] : '';
+        }
+        go.disabled = order.length !== opts.length;
+      };
+      go.onclick = () => submit(l.id, [...order]);
+      sec.append(h('div', { class: 'term-row' }, h('div', { class: 'ochips' }, chips.map((c) => c.b)), go), h('div', { class: 'fine', style: 'text-align:left; margin-top:6px' }, 'Tap in order, busiest first. Tap again to undo.'));
+      render();
     } else if (l.input === 'runes') {
       const opts = l.options ?? [];
       const pick = l.pick ?? opts.length;
@@ -195,5 +239,5 @@ export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: str
     }
     return sec;
   });
-  open('terminal', [h('div', { class: 'kick' }, h('span', { class: 'src' }, 'The Door')), h('h2', null, 'The Petitions'), h('div', { class: 'by' }, 'Some are settled from your side, some from theirs.'), rule(), ...sections]);
+  open('terminal', [h('div', { class: 'kick' }, h('span', { class: 'src' }, 'The Door')), h('h2', null, 'The Petitions'), h('div', { class: 'by' }, 'Settle them in any order. Each one needs both of you.'), rule(), ...sections]);
 }

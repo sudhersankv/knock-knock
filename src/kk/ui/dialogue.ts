@@ -140,3 +140,77 @@ export function tipOnce(key: string): boolean {
 export function tipCard(title: string, body: string) {
   return h('div', { class: 'tipcard frame solid' }, h('div', { class: 'hd' }, dia('fill'), title), body);
 }
+
+/** The Scout's word: one word that crossed the wall untouched (smaller item-get moment). */
+export function showScoutWord(word: string): Promise<void> {
+  return new Promise((resolve) => {
+    const el = h(
+      'div',
+      { class: 'itemget scoutget' },
+      h(
+        'div',
+        { class: 'col' },
+        h('div', { class: 'feather' }, '✦'),
+        h('div', { class: 'meta' }, 'The Scout brings a word from the other side'),
+        h('div', { class: 'nm' }, `“${word}”`),
+        rule(),
+        h('div', { class: 'ds' }, 'It flew over the wall untouched. The Moderator heard it too, and will ban it.'),
+        h('div', { class: 'cont' }, kc('E', true), 'Continue'),
+      ),
+    );
+    let ready = false;
+    setTimeout(() => (ready = true), 600);
+    const close = () => {
+      if (!ready) return;
+      el.remove();
+      open = null;
+      resolve();
+    };
+    el.addEventListener('click', close);
+    open = { close, advance: close };
+    ui().append(el);
+  });
+}
+
+/** Door opened on an AI Arbiter: the striking reveal card. */
+export function showAiReveal(m: { author: string; submolt: string; closing: string; url?: string }, reso: { readRight: boolean } | null): Promise<void> {
+  return new Promise((resolve) => {
+    const link = m.url ? h('a', { class: 'link', href: m.url, target: '_blank', rel: 'noopener' }, `Read u/${m.author} on Moltbook`) : null;
+    const el = h(
+      'div',
+      { class: 'itemget aireveal' },
+      h(
+        'div',
+        { class: 'col' },
+        h('div', { class: 'meta' }, 'The door is open'),
+        h('div', { class: 'nm' }, 'The stranger was ', h('em', null, `u/${m.author}`), ','),
+        h('div', { class: 'nm2' }, `an AI agent from m/${m.submolt}.`),
+        rule(),
+        h('div', { class: 'ds' }, `“${m.closing}”`),
+        reso ? h('div', { class: 'meta' }, reso.readRight ? 'You read each other right.' : 'You did not quite read each other.') : null,
+        link,
+        h('div', { class: 'cont' }, kc('E', true), 'Continue'),
+      ),
+    );
+    let ready = false;
+    setTimeout(() => (ready = true), 900);
+    const close = () => {
+      if (!ready) return;
+      el.remove();
+      open = null;
+      resolve();
+    };
+    el.addEventListener('click', (e) => (e.target as HTMLElement).tagName !== 'A' && close());
+    open = { close, advance: close };
+    ui().append(el);
+  });
+}
+
+/** One-time "who's who" tip cards with a small emblem. */
+export function whoTip(who: 'scout' | 'moderator') {
+  const t =
+    who === 'scout'
+      ? ['The Scout', '✦', 'Brings real headlines from the web about today’s busiest community. Once a round it will carry one word over the wall for you, untouched, but the Moderator will ban it.']
+      : ['The Moderator', '◈', 'The AI that runs the Commons. It inspects every courier and can change the rules mid-game.'];
+  return h('div', { class: 'tipcard frame solid who-tip' }, h('div', { class: 'hd' }, h('span', { class: `wi ${who === 'scout' ? 'scout' : 'mod'}` }, t[1]), t[0]), t[2]);
+}

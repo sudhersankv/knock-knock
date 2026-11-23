@@ -14,7 +14,7 @@ import { showLanding, showOnboarding, QueueScreen, showHowTo, newMatchCode } fro
 let practiceMode = false;
 import { showReader, showTerminal, closeModal, modalOpen, modalKind } from './ui/modals';
 import { CallUi, showReveal, settledLine, readLine, type Debate, type Resonance } from './ui/endgame';
-import { showDialogue, dialogueAdvance, dialogueOpen, showItemGet, tipOnce, tipCard } from './ui/dialogue';
+import { showDialogue, dialogueAdvance, dialogueOpen, showItemGet, tipOnce, tipCard, showScoutWord, showAiReveal, whoTip } from './ui/dialogue';
 import { Journal } from './ui/journal';
 import { Tutorial, tutorialDone } from './game/tutorial';
 import { TouchControls, isTouch, rotateHint } from './game/touch';
@@ -52,11 +52,11 @@ const call = new Call(net);
 let mock: MockServer | null = null;
 const journal = new Journal();
 const touch = isTouch ? new TouchControls({
-  action: () => (dialogueOpen() ? dialogueAdvance() : holding ? openReply() : interact(nearest)),
+  action: () => (dialogueOpen() ? dialogueAdvance() : holding ? openReply() : !nearest && scoutNear() ? giveScout() : interact(nearest)),
   sendRead: () => { const t = nearestThread(); if (t) sendRead(t.id); },
   micDown: () => startTalk(),
   micUp: () => void stopTalk(),
-  keyboard: () => hud?.ptt('type', '', tell),
+  keyboard: () => typeToCourier(),
   journal: () => journal.toggle(),
   zoom: (d) => cam.zoomBy(d),
 }) : null;
@@ -90,6 +90,7 @@ interface Round {
   debate: Debate | null;
   resonance: Resonance | null;
   deliveries: number;
+  practice: boolean;
 }
 let selfId = '';
 let codename = '';
@@ -156,7 +157,10 @@ async function boot() {
   }
   const landing = showLanding();
   if (SHOT === 'landing') return;
-  if (SHOT === 'howto') return void showHowTo();
+  if (SHOT === 'howto') {
+    showHowTo();
+    return void setTimeout(() => (document.querySelectorAll('.ht-tab')[1] as HTMLElement | undefined)?.click(), 50);
+  }
   const lr = SHOT ? { demo: false } : await landing;
   if (SHOT) document.querySelector('.screen')?.remove();
   sfx.start();
@@ -219,6 +223,7 @@ function wireNet() {
     if (m.content.kind === 'terminal') return openTerminal();
     if (m.content.kind === 'scrap') return void gotScrap(m.content);
     if (m.content.kind === 'thread') tut.event('read_thread');
+    if (m.content.kind === 'codex') tut.event('read_codex');
     showReader(m.content, { canSend: m.content.kind === 'thread', companion: round?.companionName ?? 'your courier', onSend: () => sendRead(m.content.id) });
   });
   net.on('vocab', (m) => {
@@ -253,6 +258,10 @@ function wireNet() {
   });
   net.on('bubble', (m) => {
     if (!round) return;
+    if (actors.map.get(m.actorId)?.last.kind === 'scout' && tipOnce('who-scout')) {
+      const id = m.actorId;
+      labels.set('tipcard:scout', whoTip('scout'), () => actors.map.get(id)?.pos ?? null, 3.4, 9000);
+    }
     const get = () => actors.map.get(m.actorId)?.pos ?? null;
     const kind = actors.map.get(m.actorId)?.last.kind;
     const yOff = kind === 'companion' || kind === 'scout' ? 1.5 : kind === 'gatekeeper' ? 3.3 : 2.4;
@@ -283,8 +292,8 @@ function wireNet() {
     if (!round) return void (pending.briefing = m);
     if (!m.lines.length) return;
     void showDialogue('The Moderator', m.lines, !!SHOT).then(() => {
-      if (SHOT && SHOT !== 'tutorial') return;
-      if (practiceMode || !tutorialDone() || SHOT === 'tutorial') tut.start();
+      if (SHOT && SHOT !== 'tutorial' && SHOT !== 'practice') return;
+      if (practiceMode || round?.practice || !tutorialDone() || SHOT === 'tutorial' || SHOT === 'practice') tut.start(practiceMode || !!round?.practice || SHOT === 'practice');
       else hud?.goal('Settle the Petitions', ['Hold ', kc('C'), ' and tell your courier what to carry']);
     });
   });
@@ -303,6 +312,43 @@ function wireNet() {
       if (o && isHiddenScrap(o)) continue;
       labels.marker(t, '', () => v3(t), 3.4);
     }
+  });
+  net.on('agent_says', (m) => {
+    if (!round) return;
+    const who = m.agent === 'scout' ? 'The Scout' : 'The Moderator';
+    const shady = m.kind === 'gossip' || m.kind === 'lobby' || m.kind === 'whisper';
+    journal.log.push({ t: Math.max(0, Math.round((performance.now() / 1000) - round.startedAt)), actor: who, action: m.kind === 'headline' ? 'brought a headline' : m.kind === 'gossip' ? 'gossiped' : m.kind === 'lobby' ? 'lobbied' : 'whispered', reason: m.text, side: 'C' });
+    journal.refresh();
+    if (m.agent === 'scout') {
+      let scout: { pos: THREE.Vector3 } | undefined;
+      for (const a of actors.map.values()) if (a.last.kind === 'scout' && a.last.side === round.side) scout = a;
+      const get = () => scout?.pos ?? null;
+      const el = h('div', { class: `bubble line agentsay ${shady ? 'shady' : ''}` }, h('span', { class: 'who', style: 'background:#c98a1b' }, '✦'), h('span', { class: 'ws' }, m.text), shady ? h('span', { class: 'unv', title: 'Unverified: the Scout has its own opinions' }, '?') : null);
+      labels.set('bubble:scoutsay', el, get, 1.9, 9000);
+    } else {
+      lastWhisper = m.text;
+      hud?.whisper(m.text);
+      if (modalKind() === 'terminal') openTerminal();
+    }
+  });
+  net.on('scout_word', (m) => {
+    if (!round) return;
+    if (m.from === 'you') {
+      scoutUsed = true;
+      hud?.setScout(true);
+      return;
+    }
+    sfx.chime();
+    void showScoutWord(m.word);
+    if (m.usedThisRound) {
+      /* they spent theirs */
+    }
+  });
+  net.on('ai_reveal', (m) => {
+    if (!round) return;
+    aiReveal = m;
+    const partner = round.partner.codename;
+    void showDialogue(partner, ['…', m.closing], !!SHOT).then(() => showAiReveal(m, round?.resonance ?? null));
   });
   net.on('courier_claim', (m) => {
     if (!round) return;
@@ -335,6 +381,8 @@ function wireNet() {
   net.on('lock_state', (m) => {
     if (!round) return void pending.other.push(m);
     const before = round.locks.filter((l) => l.status === 'open').length;
+    const wasOpen = new Set(round.locks.filter((l) => l.status === 'open').map((l) => l.id));
+    for (const l of m.locks) if (l.status === 'open' && !wasOpen.has(l.id)) tut.event(l.id === 'codex' ? 'codex_open' : l.id === 'pulse' ? 'census_open' : 'verdict_open');
     round.locks = m.locks;
     hud?.setLocks(m.locks);
     journal.locks = m.locks;
@@ -357,6 +405,7 @@ function wireNet() {
     if (modalKind() === 'terminal') openTerminal();
   });
   net.on('world_event', (m) => {
+    if (tipOnce('who-moderator')) setTimeout(() => hud?.cardTip(whoTip('moderator')), 5200);
     if (m.kind === 'rekey' && openObjectId && modalKind() === 'reader' && !openObjectId.includes(':t')) net.send({ t: 'read', objectId: openObjectId });
     if (m.kind === 'rekey' && m.lockId) {
       world.rekey(m.lockId);
@@ -384,6 +433,7 @@ function wireNet() {
     if (m.kind !== 'rekey') sfx.grind();
   });
   net.on('unlock', (m) => {
+    tut.event('door');
     if (!round) return;
     const r0 = round;
     round.unlocked = true;
@@ -450,6 +500,10 @@ function wireNet() {
       },
       stay: () => toastScreen('Sent. If they agree, you both get a link.'),
     }, round.debate, round.resonance);
+    if (aiReveal) {
+      const w = document.querySelector('.reveal .wrap .sub');
+      w?.after(h('div', { class: 'ainote' }, `You played with an AI agent: u/${aiReveal.author} from m/${aiReveal.submolt}.`));
+    }
   });
   net.on('toast', (m) => (hud ? hud.toast(m.text) : toastScreen(m.text)));
 }
@@ -484,7 +538,11 @@ function startRound(m: Extract<S2C, { t: 'matched' }>) {
     debate: null,
     resonance: null,
     deliveries: 0,
+    practice: !!(m as { practice?: boolean }).practice,
   };
+  scoutUsed = false;
+  tutChips = [];
+  lastWhisper = '';
   banned.clear();
   holding = null;
   questHeld = null;
@@ -573,7 +631,8 @@ let holding: { id: string; name: string; color: number; agendaHint: string } | n
 let lastVisit: { words: string[]; text: string } = { words: [], text: '' };
 let questHeld: Extract<S2C, { t: 'quest' }> | null = null;
 const tut = new Tutorial({
-  show: (steps) => hud?.setQuest('Orientation', steps, () => tut.skip()),
+  show: (steps, title) => hud?.setQuest(title, steps, () => tut.skip()),
+  chips: (id) => (tutChips = id ? chipsFor(id) : []),
   say: (line) => void showDialogue('The Moderator', [line], !!SHOT, SHOT ? 0 : 5200),
   marker: (t) => {
     labels.clearMarkers();
@@ -583,11 +642,42 @@ const tut = new Tutorial({
       if (th) labels.marker(th.id, '', () => v3(th.id), 3.4);
     } else if (t === 'courier') labels.marker('courier', '', () => actors.map.get(round!.companionId)?.pos ?? null, 1.8);
     else if (t === 'visitor' && holding) labels.marker('visitor', '', () => actors.map.get(holding!.id)?.pos ?? null, 1.8);
+    else if (t === 'codex' || t === 'terminal' || t === 'board') {
+      const o = round.objects.find((x) => x.id === `${round!.side}:${t}`);
+      if (o) labels.marker(o.id, '', () => v3(o.id), 3.4);
+    }
   },
   done: () => {
     if (questHeld) net.emit(questHeld);
   },
 });
+let tutChips: string[] = [];
+let lastWhisper = '';
+let aiReveal: Extract<S2C, { t: 'ai_reveal' }> | null = null;
+let scoutUsed = false;
+function chipsFor(id: string): string[] {
+  if (!round) return [];
+  const sec = round.locks.find((l) => l.id === 'codex')?.secret;
+  if (id === 'p2') return sec ? [`line ${sec.line} word ${sec.wordNo}`] : ['line 10 word 3'];
+  if (id === 'p4') return round.locks.find((l) => l.id === 'pulse')?.input === 'order' ? ['which is busiest'] : ['first general then builds'];
+  if (id === 'p5') return ['up 2', 'down 2', 'up 3'];
+  return [];
+}
+function typeToCourier() {
+  hud?.ptt('type', '', tell, 'Tell your courier…', tutChips);
+}
+function scoutNear() {
+  if (!round || scoutUsed) return null;
+  for (const a of actors.map.values()) if (a.last.kind === 'scout' && a.last.side === round.side && a.pos.distanceTo(me.pos) < 3.6) return a;
+  return null;
+}
+function giveScout() {
+  if (!round || scoutUsed) return;
+  hud?.scoutInput((w) => {
+    net.send({ t: 'scout_send', word: w });
+    hud?.toast(`The Scout takes “${w}” over the wall.`, '', 3500);
+  });
+}
 function nearestThreadAny() {
   if (!round) return null;
   let best: ObjInfo | null = null;
@@ -655,7 +745,7 @@ function startTalk() {
   if (voice.supported && voice.start()) hud?.ptt('listen');
   else {
     pttDown = false;
-    hud?.ptt('type', '', tell);
+    typeToCourier();
   }
 }
 async function stopTalk() {
@@ -680,12 +770,16 @@ function interact(o: ObjInfo | null) {
 function openTerminal() {
   if (!round) return;
   showTerminal(
-    round.locks,
+    round.locks.map((l) => (l.id === 'common' && lastWhisper ? { ...l, whisper: lastWhisper } : l)) as typeof round.locks,
     (id, answer) => {
       net.send({ t: 'lock_submit', lockId: id, answer });
       hud?.toast('Sealed. Waiting on the door…');
     },
     () => sfx.tick(),
+    () => {
+      closeModal();
+      net.send({ t: 'read', objectId: `${round!.side}:board` });
+    },
   );
 }
 function sendRead(id: string) {
@@ -723,6 +817,7 @@ addEventListener('keydown', (e) => {
   }
   if (!round || modalOpen() || hud?.menuOpen || journal.isOpen || dialogueOpen()) return;
   if (e.code === 'KeyE' && holding && !nearest) openReply();
+  else if (e.code === 'KeyE' && !nearest && scoutNear()) giveScout();
   else if (e.code === 'KeyE') interact(nearest);
   else if (e.code === 'KeyR') {
     const t = nearestThread();
@@ -730,7 +825,7 @@ addEventListener('keydown', (e) => {
     else hud?.toast('Walk up to a thread board first.');
   } else if (e.code === 'Enter') {
     e.preventDefault();
-    hud?.ptt('type', '', tell);
+    typeToCourier();
   } else if (e.code === 'KeyC' && !e.repeat && !pttDown) startTalk();
 });
 addEventListener('keyup', (e) => {
@@ -740,7 +835,7 @@ voice.onInterim = (t) => pttDown && hud?.ptt('listen', t);
 voice.onFail = (why) => {
   pttDown = false;
   hud?.toast(why === 'not-allowed' ? 'Mic blocked. Press Enter to type.' : 'Mic failed. Press Enter to type.');
-  hud?.ptt('type', '', tell);
+  typeToCourier();
 };
 
 canvas.addEventListener('click', (e) => {
@@ -872,6 +967,16 @@ function frame() {
       prevNear = best;
     }
 
+    // the Scout: offer a word when it is close and unused
+    const sc = scoutNear();
+    if (sc && !nearest && !labels.has('scouttip')) {
+      labels.set('scouttip', h('div', { class: 'tip' }, h('span', { class: 'tl-name' }, 'The Scout'), h('span', { class: 'acts' }, h('span', null, kc('E', true), 'Give the Scout a word'))), () => sc.pos, 2.4);
+      touch?.setAction('Scout', false);
+    } else if ((!sc || nearest) && labels.has('scouttip')) {
+      labels.remove('scouttip');
+      if (!nearest) touch?.setAction(holding ? 'Reply' : null, false);
+    }
+
     // faint glints at hidden petition shards
     glintAcc += dt;
     if (glintAcc > 0.7) {
@@ -927,7 +1032,7 @@ if (!SHOT && !params.has('q')) {
 }
 
 // screenshot helpers (dev): ?mock&shot=hud|reader
-if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT === 'journal' || SHOT === 'shard' || SHOT === 'briefing' || SHOT === 'call' || SHOT === 'claim' || SHOT === 'visiting' || SHOT === 'tutorial')) {
+if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT === 'journal' || SHOT === 'shard' || SHOT === 'briefing' || SHOT === 'call' || SHOT === 'claim' || SHOT === 'visiting' || SHOT === 'tutorial' || SHOT === 'practice' || SHOT === 'ai' || SHOT === 'scout')) {
   const iv = setInterval(() => {
     if (!round) return;
     clearInterval(iv);
@@ -937,7 +1042,10 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
       me.pos.set(x + 1.2, 0, z + 1.6);
       cam.snap(me.pos);
       if (SHOT === 'reader') net.send({ t: 'read', objectId: `${round!.side}:t1` });
-      if (SHOT === 'terminal') openTerminal();
+      if (SHOT === 'terminal') {
+        mock?.agentSays();
+        setTimeout(openTerminal, 200);
+      }
       if (SHOT === 'journal') {
         mock?.giveShard();
         setTimeout(() => (document.querySelector('.itemget') as HTMLElement | null)?.remove(), 300);
@@ -948,6 +1056,16 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
       if (SHOT === 'call') mock?.openDoor();
       if (SHOT === 'claim') mock?.claim('up three, line four');
       if (SHOT === 'visiting') mock?.visit();
+      if (SHOT === 'ai') {
+        mock?.aiReveal();
+        setTimeout(() => { dialogueAdvance(); dialogueAdvance(); }, 300);
+      }
+      if (SHOT === 'scout') mock?.scoutWord();
+      if (SHOT === 'practice') {
+        mock?.sendBriefing();
+        setTimeout(() => { for (let i = 0; i < 5; i++) dialogueAdvance(); }, 60);
+        setTimeout(() => { for (const e of ['near_thread', 'read_thread', 'send_read', 'tell', 'crossed', 'send_back', 'read_codex'] as const) tut.event(e); }, 400);
+      }
       if (SHOT === 'tutorial') {
         mock?.sendBriefing();
         setTimeout(() => dialogueAdvance(), 50);
@@ -960,7 +1078,7 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
       }
       if (SHOT === 'hud') setTimeout(() => {
         net.emit({ t: 'bubble', actorId: round!.companionId, name: 'Pip', words: ['quartet', 'then', 'nine'], text: 'A quartet, then nine.', kind: 'delivery' });
-        net.emit({ t: 'feed', item: { t: 41, actor: 'Gatekeeper', action: 'narrowed the keyhole to 4 words', reason: 'the pair is racing', side: 'C' } });
+        net.emit({ t: 'feed', item: { t: 41, actor: 'The Moderator', action: 'narrowed the keyhole to 4 words', reason: 'the pair is racing', side: 'C' } });
         hud?.banner('THE KEYHOLE NARROWS', 'You two were racing. Four words per trip now.', 'magic', 'ᛟ', 60000);
         hud?.setBudget(4);
         world.setBudget(4);

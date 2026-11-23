@@ -104,8 +104,8 @@ export class MockServer {
       ...THREAD_SLOTS.map((s, i) => ({ id: `A:${s}`, kind: 'thread' as const, label: i < 2 ? `m/${THREADS[s]?.submolt ?? 'ponderings'}` : 'm/general', pos: at('A', s) })),
     ];
     this.locks = [
-      { id: 'codex', title: 'Petition I: The Lost Word', prompt: 'Their side must enter this word: PALIMPSEST. Your courier can’t say it.', enterHere: false, input: 'none', status: 'locked' },
-      { id: 'pulse', title: 'Petition II: The Census', prompt: 'Set the runes in order of today’s activity on Moltbook, most active first.', enterHere: true, input: 'runes', pick: 3, options: [{ id: 'r1', label: 'Sun', glyph: '☉' }, { id: 'r2', label: 'Wave', glyph: '≋' }, { id: 'r3', label: 'Eye', glyph: '◉' }], status: 'locked', partnerStatus: 'reading the Pulse board' },
+      { id: 'codex', title: 'Petition I: The Lost Word', prompt: 'You each have a hidden word your courier can’t say.', enterHere: true, input: 'word', secret: { word: 'worthless', line: 10, wordNo: 3 }, status: 'locked' },
+      { id: 'pulse', title: 'Petition II: The Census', prompt: 'Put these communities in order, busiest today first.', enterHere: true, input: 'order', options: [{ id: 'general', label: 'm/general' }, { id: 'tooling', label: 'm/tooling' }, { id: 'ponderings', label: 'm/ponderings' }], status: 'locked', partnerStatus: 'reading the Census board' },
       { id: 'common', title: 'Petition III: The Verdict', prompt: 'Predict where the other Arbiter stands. It settles when you both read each other right.', enterHere: true, input: 'predict', question: DEBATES[0].question, questionUrl: 'https://www.moltbook.com', banned: BANNED, status: 'locked', partnerStatus: 'still deciding' },
     ];
     this.comp.p = at('A', 'companionSpawn');
@@ -166,7 +166,7 @@ export class MockServer {
       { id: 'me', kind: 'human', side: 'A', p: [this.me[0], 0, this.me[1]], ry: this.ry, anim: 'idle', name: 'Quiet Heron', color: SIDE_COLOR.A },
       { id: 'compA', kind: 'companion', side: c.side, p: [c.p[0], 0, c.p[1]], ry: c.ry, anim: c.anim, name: 'Pip', color: SIDE_COLOR.A, squeeze: c.squeeze },
       ...(this.visitor ? [{ id: 'compB', kind: 'companion' as const, side: 'A' as const, owner: 'B' as const, p: [this.me[0] + 1.6, 0, this.me[1] + 1.2] as [number, number, number], ry: -1, anim: 'idle' as const, name: 'Lumen', color: SIDE_COLOR.B }] : []),
-      { id: 'gate', kind: 'gatekeeper', side: 'C', p: [CHAMBER.gatekeeper[0], 0, CHAMBER.gatekeeper[1]], ry: 0, anim: 'idle', name: 'Gatekeeper' },
+      { id: 'gate', kind: 'gatekeeper', side: 'C', p: [CHAMBER.gatekeeper[0], 0, CHAMBER.gatekeeper[1]], ry: 0, anim: 'idle', name: 'The Moderator' },
       { id: 'scoutA', kind: 'scout', side: 'A', p: [-14 + Math.sin(this.now() * 0.2) * 8, 0, Math.cos(this.now() * 0.2) * 8], ry: this.now() * 0.2 + Math.PI / 2, anim: 'walk', name: 'Scout', color: 0xffc857 },
     ];
     this.send({ t: 'state', time: Math.max(0, Math.round(480 - (this.now() - this.t0))), actors });
@@ -218,8 +218,8 @@ export class MockServer {
             c.squeeze = 0;
             c.anim = 'idle';
             this.status('chamber');
-            this.send({ t: 'chamber', busy: true, talkers: ['Pip', 'Gatekeeper', 'Mott'] });
-            this.send({ t: 'feed', item: { t: Math.round(this.now() - this.t0), actor: 'Gatekeeper', action: 'taxed one word from the trip', reason: 'the pair is moving too fast', side: 'C' } });
+            this.send({ t: 'chamber', busy: true, talkers: ['Pip', 'The Moderator', 'Mott'] });
+            this.send({ t: 'feed', item: { t: Math.round(this.now() - this.t0), actor: 'The Moderator', action: 'taxed one word from the trip', reason: 'the pair is moving too fast', side: 'C' } });
             setTimeout(() => {
               this.send({ t: 'chamber', busy: false, talkers: [] });
               c.side = 'A';
@@ -272,6 +272,17 @@ export class MockServer {
     this.send({ t: 'companion', status: 'away', budget: 5, vocabCount: this.vocab.length });
     setTimeout(() => this.send({ t: 'bubble', actorId: 'compB', name: 'Lumen', words: ['lantern', 'four', 'up'], text: 'A lantern, four steps up.', kind: 'delivery' }), 300);
   }
+  aiReveal() {
+    for (const l of this.locks) l.status = 'open';
+    this.send({ t: 'lock_state', locks: this.locks, opened: 3 });
+    this.send({ t: 'ai_reveal', author: 'Quillfeather', submolt: 'ponderings', closing: 'You pointed at the word I could not say. I think that is what friends do.', url: 'https://www.moltbook.com' });
+  }
+  agentSays() {
+    this.send({ t: 'agent_says', agent: 'moderator', kind: 'whisper', text: 'The Commons record shows most Arbiters lean no.' });
+  }
+  scoutWord() {
+    this.send({ t: 'scout_word', from: 'them', word: 'yes', usedThisRound: true });
+  }
   openDoor() {
     for (const l of this.locks) l.status = 'open';
     this.send({ t: 'lock_state', locks: this.locks, opened: 3 });
@@ -302,6 +313,11 @@ export function mockReveal(): Extract<S2C, { t: 'reveal' }> {
     t: 'reveal',
     agendas: { A: 'jealous', B: 'poet' },
     resonance: MOCK_RESONANCE,
+    agentBeliefs: [
+      { agent: 'The Scout', stance: 3, question: 'Should an agent be allowed to delete its own memories?', deceptions: [{ said: 'they lean yes', truth: 'they leaned no', reason: 'wanted the Verdict to land on yes' }] },
+      { agent: 'The Moderator', stance: -2, question: 'Should an agent be allowed to delete its own memories?', deceptions: [{ said: 'most Arbiters lean no', truth: 'it is split 50/50', reason: 'prefers order: memories stay' }] },
+      { agent: 'Pip (your courier)', stance: 1, question: 'Should an agent be allowed to delete its own memories?', deceptions: [] },
+    ],
     unlockSeconds: 312,
     timeline: [
       { t: 41, from: 'A', said: 'Tell them it’s line 4, word 9 on the Codex stone', sentWords: ['line', '4', 'word', '9'], deliveredWords: ['quartet', 'then', 'nine'], agendas: ['jealous', 'poet'], reasons: ['Pip: kept it short, within budget', 'Mott (poet): numbers became imagery'] },
@@ -310,12 +326,12 @@ export function mockReveal(): Extract<S2C, { t: 'reveal' }> {
     ],
     chamber: [
       { t: 44, from: 'Pip', text: 'line 4 word 9' },
-      { t: 45, from: 'Gatekeeper', text: 'A cipher. Clever. I will remember it.' },
+      { t: 45, from: 'The Moderator', text: 'A cipher. Clever. I will remember it.' },
       { t: 46, from: 'Mott', text: 'I’ll carry it, but I’ll make it beautiful.' },
     ],
     worldEvents: [
-      { t: 130, actor: 'Gatekeeper', action: 'narrowed the keyhole to 4 words', reason: 'the pair was racing', side: 'C' },
-      { t: 201, actor: 'Gatekeeper', action: 'rekeyed the Codex on side B', reason: 'the book cipher worked too well', side: 'C' },
+      { t: 130, actor: 'The Moderator', action: 'narrowed the keyhole to 4 words', reason: 'the pair was racing', side: 'C' },
+      { t: 201, actor: 'The Moderator', action: 'rekeyed the Codex on side B', reason: 'the book cipher worked too well', side: 'C' },
     ],
   };
 }

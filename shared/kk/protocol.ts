@@ -42,7 +42,12 @@ export interface LockInfo {
   /** True if this side's terminal enters the answer for this lock. */
   enterHere: boolean;
   /** 'predict' (Petition III v2): answer = `${'yes'|'no'}:${1|2|3}` — your prediction of the OTHER Arbiter's stance on `question`. */
-  input: 'word' | 'runes' | 'take' | 'predict' | 'none';
+  input: 'word' | 'runes' | 'take' | 'predict' | 'order' | 'none';
+  /** Petition I (symmetric): YOUR hidden word, which the other Arbiter must type, and where it sits on the Codex stone. */
+  secret?: { word: string; line: number; wordNo: number };
+  /** 'order': choices are community names; pick all of them busiest first. */
+  /** For 'predict': real agent replies from the thread (the argument you are settling). */
+  voices?: { author: string; text: string; stance: 1 | -1 }[];
   /** For 'predict': the debate question both sides see, plus its Moltbook thread url. */
   question?: string;
   questionUrl?: string;
@@ -84,6 +89,9 @@ export type C2S =
   | { t: 'tell'; text: string } // instruction to your own companion
   /** Send the visiting courier (the stranger's) back home carrying your reply. */
   | { t: 'send_back'; text: string }
+  /** Hand ONE word to the Scout (must be within INTERACT_RADIUS of it). Once per round. It flies it over the wall
+   *  unfiltered (no budget, no bans, no agenda), then reports it to the Moderator, who bans that word. */
+  | { t: 'scout_send'; word: string }
   | { t: 'send_read'; objectId: string } // send companion to read a thread
   | { t: 'read'; objectId: string } // human opens an object -> server replies 'object'
   | { t: 'lock_submit'; lockId: LockId; answer: string | string[] }
@@ -166,6 +174,7 @@ export type S2C =
   | { t: 'call_end'; reason: string }
   | {
       t: 'reveal';
+      agentBeliefs?: { agent: string; stance: number; question: string; deceptions: { said: string; truth: string; reason: string }[] }[];
       timeline: RevealEntry[];
       chamber: { t: number; from: string; text: string }[];
       agendas: Record<Side, Agenda>;
@@ -182,6 +191,21 @@ export type S2C =
   /** Narrative intro shown once at drop-in (the Moderator's summons). */
   | { t: 'briefing'; lines: string[] }
   | { t: 'scrap_found'; objectId: string; found: number; total: number }
+  /** An agent speaking its own mind to you (Scout gossip/lobby, Moderator whisper). Not verified; may be a lie. */
+  | { t: 'agent_says'; agent: 'scout' | 'moderator'; kind: 'headline' | 'gossip' | 'lobby' | 'whisper'; text: string; url?: string }
+  /** Sent when the door opens if the stranger was an AI Arbiter (a Moltbook agent). */
+  /** The Scout delivered a word over the wall (to the receiver) / your scout word status (to the sender). */
+  | { t: 'scout_word'; from: 'them' | 'you'; word: string; usedThisRound: boolean }
+  /** The Commons Wire: a line the agents posted to each other on the BAND chamber chat (public parts only). */
+  | { t: 'wire'; from: string; text: string; band: boolean; ts: number }
+  /** The Commons Record (Bruin): shown on the record board + briefing. */
+  | {
+      t: 'record';
+      society: { posts24h: number; comments24h: number; activeAgents24h: number; submolts: number; totalAgents?: number } | null;
+      pipeline: { generatedAt: string; checksPassed: number; checksTotal: number; threads: number };
+      history: { rounds: number; lieRate: number; caught: number; bestUnlockSeconds: number | null; agendaLines: { agenda: string; line: string }[] };
+    }
+  | { t: 'ai_reveal'; author: string; submolt: string; closing: string; url?: string }
   | { t: 'partner_left' }
   | { t: 'toast'; text: string };
 

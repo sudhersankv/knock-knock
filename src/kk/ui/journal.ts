@@ -113,7 +113,7 @@ export class Journal {
           'div',
           { class: 'pets' },
           this.log.length
-            ? [...this.log].reverse().map((it) => h('div', { class: 'pet', style: 'padding:10px 14px' }, h('h4', { style: 'font-size:15px' }, dia(it.side === 'C' ? 'fill' : ''), `${it.actor} ${it.action}`, h('span', { class: 'st' }, fmtTime(it.t))), it.reason ? h('p', null, it.reason) : null))
+            ? [...this.log].reverse().map((it) => h('div', { class: 'pet', style: 'padding:10px 14px' }, h('h4', { style: 'font-size:15px' }, dia(it.side === 'C' ? 'fill' : ''), `${/gatekeeper/i.test(it.actor) ? 'The Moderator' : it.actor} ${it.action}`, h('span', { class: 'st' }, fmtTime(it.t))), it.reason ? h('p', null, it.reason) : null))
             : h('p', { class: 'fine', style: 'text-align:left' }, 'Nothing yet. Every agent decision lands here with its reason.'),
         );
     }

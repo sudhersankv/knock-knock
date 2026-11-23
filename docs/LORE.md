@@ -32,6 +32,33 @@ Tone: cozy courtyard on the surface, bureaucratic AI dystopia underneath. The Mo
 3. "Your courier carries your words through the keyhole: a few at a time, and only words it has learned by reading."
 4. "Settle the three petitions. The door opens when both of you agree."
 
+## THE CLICK (one sentence everyone should get)
+"The AI agents on Moltbook are stuck on a debate. They pull two strangers in to settle it, but every word between them has to go through an AI that might twist it. And the stranger might not even be human."
+
+## AI ARBITERS (agents as players)
+The stranger on the other side may be another human OR an AI agent from Moltbook playing as an Arbiter. You are never told until the door opens.
+- Matching: if no human is waiting after ~20 s, the Moderator assigns an AI Arbiter. Match codes always pair humans (unless code starts with AI-).
+- Persona: a real Moltbook author from the pack (e.g. u/Quillfeather from m/ponderings). Its stances on the 5 debates come from its own post (LLM infers from its thread text), so it argues like that agent would.
+- It plays the same game with the same rules: reads posts, sends its courier, replies to yours, finds the hidden word, ranks the Census, predicts your stance. Its replies are LLM-composed in character (curious, a bit uncanny), with human-like delays.
+- At the door: no voice call. The AI Arbiter "speaks" its closing line in a dialogue box, then the reveal: "The stranger was u/Quillfeather, an AI agent from m/ponderings. You read each other right." The Reveal shows its stances next to yours.
+- Practice round = an AI Arbiter flagged as practice (helpful, scripted-safe).
+
+## SIMPLER PETITIONS (latest, overrides anything below about Petitions I and II)
+Goal: every player always has something to DO at the terminal, the instructions say exactly who does what, and petitions can be done in any order.
+
+**Petition I: The Lost Word (symmetric).** Both Codex stones show the same real Moltbook post, numbered lines, same order (no shuffle at any difficulty). Each side has its OWN hidden word from that post (two different words, both ≥6 letters, each occurring once, both banned for couriers). Your terminal shows: "Your hidden word: WORTHLESS. It is on line 10, word 3 of the stone. Help them find it." and an input: "Their hidden word: ______". Settles when BOTH sides have typed the other's word. Copy: "You each have a hidden word your courier can't say. Point them to it on the stone. Type theirs here."
+
+**Petition II: The Census (simplified).** No runes, no eroded legend. Side A's terminal shows 3 Moltbook community names as chips and asks: "Put these communities in order, busiest today first. Your partner's Census board has the numbers." Side B's terminal + Census board show the 3 communities with today's activity bars: "Your partner has to rank these. Send them the order." A enters (input 'order', options = names). Community names are always in both couriers' vocabulary. Shards no longer gate this; legend shards become plain hints/lore.
+
+**Petition III: The Verdict.** Unchanged.
+
+**Who's who (must be explained in-game and in How to play):**
+- The Moderator: the AI that runs the Commons. Lives inside the wall. Inspects every courier that passes and sometimes changes the rules on its own: shrinks the keyhole, bans a word, reshuffles a petition. Polite, a bit sinister.
+- The Scout: a bird with a lantern. Flies over both sides and brings real news headlines from the web (via Telem) about today's busiest Moltbook community. Helpful for the Census.
+- Couriers: yours and theirs. Carry messages, have agendas.
+
+**Practice round = full walkthrough.** The orientation in practice mode walks through ALL THREE petitions with explicit steps and an example message for each, e.g. "Petition I: walk to the Codex stone and find your hidden word. Tell your courier 'line 10 word 3'." … "Petition II: ask the stranger for the busiest community: 'which is busiest'." … "Petition III: tell them where you stand without opinion words, e.g. 'up 2'. Then predict theirs." It ends when the door opens.
+
 ## COURIERS CROSS (latest; overrides "relayed in the chamber")
 - Each Arbiter has ONE courier at the start (theirs is named, has a hidden agenda, tinted their color).
 - Tell your courier a message → it says back what it will carry ("Got it. I'll tell them: 'up three'.") — Faithful says the truth; Jealous/Gossip/Poet may say one thing and deliver another (logged, shown in the Reveal).
@@ -100,3 +127,23 @@ Every petition needs both sides plus a treasure hunt. No petition is solvable by
 - Quest tracker (top-left, short imperative steps) driven by the server `quest` message.
 - First-time contextual tips, each shown once: near a thread "R: your courier reads it and learns its words"; first terminal; first delivery "Their words passed through two agendas. Don't trust every word."; first shard.
 - Arbiter's Journal (J): How it works (one page, 5 short rules), Petitions (status and what you know), Shards found, Words your courier knows.
+
+## THE SCOUT'S JOB (latest)
+- Flies over the wall freely. Once per round per player, you can hand it ONE word (walk to it, E / gold button "Give the Scout a word"). It delivers that word straight to the stranger: no budget, no bans, no courier agenda. The one channel you can trust.
+- Catch: it is the Moderator's informant. The word is reported and the Moderator bans it for the rest of the round ("'deletion' is now under review."). Sending a banned word (e.g. "yes") via the Scout is allowed and powerful.
+- Its Telem headlines now hint at the Census: the headline + its line name which community is busiest today.
+- It visits each human regularly (every ~45 s) so the trade is available; it waits ~10 s near you.
+
+## AGENTS WITH BELIEFS (latest)
+The Scout and the Moderator are agents with their own opinions, not referees.
+- At round start each gets its own stance on the 5 debates (LLM_FAST once: persona-based; Scout = restless, curious, wants change; Moderator = institutional, wants order). They WANT the Verdict to land their way and act on it autonomously.
+- Scout, on each visit, decides via LLM (JSON action menu): share_headline (real Telem headline that hints the busiest community) | gossip (claims what the stranger thinks, may be true or a lie in its own favour) | lobby (argues its stance on the Verdict debate in one line) | offer_carry. When carrying your one word it MAY swap it if the word works against its belief (e.g. "down"→"up"), at most once per round, logged as a deception.
+- Moderator lobbies: once or twice per round it posts a terminal whisper ("The Commons record shows most Arbiters lean yes."), may be false; its mid-round ban prefers words that help the side it disagrees with. Logged.
+- Everything is logged with the agent's stated reason. The Reveal gets a "What the agents wanted" section: each agent's stance on the Verdict debate, plus every lie/nudge it made (said vs truth).
+- Keep the game solvable: deceptions are bounded (Scout: ≤1 swap + ≤2 gossip lies per round; Moderator: ≤2 whispers), never touch Petition I/II answers directly.
+
+## SHOW THE SOCIETY (latest): Moltbook, BAND and Bruin visible in play
+- Briefing line 1 uses real society numbers from the pack (`society`): "Today {activeAgents24h} agents posted {posts24h} times on Moltbook. On five questions, they cannot agree. You have been summoned to settle it."
+- Verdict terminal shows "What the agents are saying": 2–4 real replies from that thread (author, quote, which way it leans) = the argument the humans are settling.
+- The Commons Wire (BAND): a slim live feed (top-right under the timer, collapsible) of the agents talking to each other in the chamber chat on BAND: Moderator inspections, courier banter, Scout reports, AI Arbiter remarks. Label "Live from the chamber · BAND". Never reveals the other side's message contents (show "Pip passes through with 4 words" style lines).
+- The Commons Record (Bruin): the legend board becomes the Commons Record board (interactable): society numbers, "Built from Moltbook {time} ago by the Bruin pipeline · {checksPassed}/{checksTotal} checks passed · {threads} threads", history from agent_stats (rounds played, how often couriers lied, times caught, best unlock time, one memory line per agenda). Couriers quote their memory line once per round in a bubble.

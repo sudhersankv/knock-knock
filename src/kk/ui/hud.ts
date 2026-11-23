@@ -81,6 +81,7 @@ export class Hud {
     this.last.onclick = () => this.onLastClick();
     ui().append(this.el, this.bannerHost);
     this.setLocks([]);
+    this.setScout(false);
   }
 
   setIdentity(_codename: string, color: number, _difficulty: string) {
@@ -208,7 +209,7 @@ export class Hud {
     /* the decision log lives in the Journal (Log tab) */
   }
   toggleFeed(_force?: boolean) {}
-  ptt(mode: 'off' | 'listen' | 'type', text = '', onSubmit?: (t: string) => void, placeholder = 'Tell your courier…') {
+  ptt(mode: 'off' | 'listen' | 'type', text = '', onSubmit?: (t: string) => void, placeholder = 'Tell your courier…', chips: string[] = []) {
     this.pttEl.innerHTML = '';
     this.pttEl.classList.toggle('hidden', mode === 'off');
     if (mode === 'listen') this.pttEl.append(h('div', { class: 'mic' }), h('div', { class: 'txt' }, text || 'Listening. Tell your courier what to carry.'));
@@ -227,6 +228,17 @@ export class Hud {
       const send = h('button', { class: 'icon-btn', title: 'Send' }, '↵');
       send.onclick = fire;
       this.pttEl.append(h('div', { class: 'mic', style: 'background: var(--teal); animation:none' }), inp, send);
+      if (chips.length) {
+        const row = h('div', { class: 'sugg' }, h('span', { class: 'sh' }, 'Try'), ...chips.map((c) => {
+          const b = h('button', { class: 'schip' }, c);
+          b.onclick = () => {
+            inp.value = c;
+            inp.focus();
+          };
+          return b;
+        }));
+        this.pttEl.append(row);
+      }
       setTimeout(() => inp.focus(), 0);
     }
   }
@@ -243,6 +255,49 @@ export class Hud {
     this.toastsEl.append(el);
     setTimeout(() => el.classList.add('out'), 4200);
     setTimeout(() => el.remove(), 4700);
+  }
+  /** Scout feather in the top-right: lit until you give it your one word. */
+  private scoutEl: HTMLElement | null = null;
+  setScout(used: boolean) {
+    if (!this.scoutEl) {
+      this.scoutEl = h('div', { class: 'scoutmark', title: 'The Scout carries one word for you per round' }, '✦');
+      this.el.querySelector('.hud-tr')?.append(this.scoutEl);
+    }
+    this.scoutEl.classList.toggle('used', used);
+    this.scoutEl.title = used ? 'You already gave the Scout your word' : 'The Scout carries one word for you per round';
+  }
+  /** A tiny one-word input for the Scout. */
+  scoutInput(onSend: (w: string) => void) {
+    this.pttEl.innerHTML = '';
+    this.pttEl.classList.remove('hidden');
+    const inp = h('input', { placeholder: 'One word for the Scout', maxLength: 24, enterKeyHint: 'send' }) as HTMLInputElement;
+    const fire = () => {
+      const w = inp.value.trim().split(/\s+/)[0]?.toLowerCase();
+      this.ptt('off');
+      if (w) onSend(w);
+    };
+    inp.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') fire();
+      else if (e.key === 'Escape') this.ptt('off');
+    });
+    const send = h('button', { class: 'icon-btn', title: 'Send' }, '↵');
+    send.onclick = fire;
+    this.pttEl.append(h('div', { class: 'mic', style: 'background: var(--gold); animation:none' }), inp, send, h('div', { class: 'sugg warn' }, 'It flies over the wall untouched. The Moderator will hear it and ban it.'));
+    setTimeout(() => inp.focus(), 0);
+  }
+  /** The Moderator's whisper: a quiet line under the timer column, unverified. */
+  whisper(text: string) {
+    const el = h('div', { class: 'toast frame whisperbox' }, h('span', { class: 'wi mod' }, '◈'), h('span', null, h('b', null, 'The Moderator whispers: '), `“${text}”`), h('span', { class: 'unv' }, '?'));
+    this.toastsEl.append(el);
+    setTimeout(() => el.classList.add('out'), 7000);
+    setTimeout(() => el.remove(), 7500);
+  }
+  /** A tip card shown in the toast column (for things without a world position). */
+  cardTip(el: HTMLElement, ms = 8000) {
+    this.toastsEl.append(el);
+    setTimeout(() => el.classList.add('out'), ms);
+    setTimeout(() => el.remove(), ms + 500);
   }
   get typing() {
     return !this.pttEl.classList.contains('hidden') && !!this.pttEl.querySelector('input');

@@ -111,6 +111,37 @@ export class CallUi {
 }
 
 type Reveal = Extract<S2C, { t: 'reveal' }>;
+/** Legacy server strings still say Gatekeeper; players only ever see The Moderator. */
+export const modName = (n: string) => (/gatekeeper/i.test(n) ? 'The Moderator' : n);
+
+/** "What the agents wanted": each agent's stance on the Verdict debate, plus every lie it told. */
+function beliefs(r: Reveal) {
+  const ab = (r as { agentBeliefs?: { agent: string; stance: number; question: string; deceptions: { said: string; truth: string; reason: string }[] }[] }).agentBeliefs;
+  if (!ab?.length) return null;
+  const pos = (n: number) => `${50 + (Math.max(-3, Math.min(3, n)) / 3) * 46}%`;
+  return h(
+    'div',
+    null,
+    h('h2', null, 'What the Agents Wanted'),
+    h('div', { class: 'fine', style: 'text-align:left; margin:-6px 0 12px' }, `On “${ab[0].question}”`),
+    h(
+      'div',
+      { class: 'agents' },
+      ab.map((a) =>
+        h(
+          'div',
+          { class: 'agent frame' },
+          h('div', { class: 'ah' }, h('b', null, a.agent), h('span', { class: 'fine' }, a.stance > 0 ? 'wanted yes' : a.stance < 0 ? 'wanted no' : 'did not care')),
+          h('div', { class: 'track' }, h('i', { class: 'mid' }), h('b', { class: 'ag', style: `left:${pos(a.stance)}` })),
+          h('div', { class: 'sh2' }, h('span', null, 'no'), h('span', null, 'yes')),
+          a.deceptions.length
+            ? h('div', { class: 'lies' }, a.deceptions.map((d) => h('div', { class: 'lie' }, h('span', null, `It told you: ‘${d.said}’.`), h('span', { class: 'truth' }, ` Truth: ${d.truth}.`), d.reason ? h('div', { class: 'why' }, d.reason) : null)))
+            : h('div', { class: 'fine', style: 'text-align:left' }, 'Told you no lies.'),
+        ),
+      ),
+    ),
+  );
+}
 
 function scaleRow(row: { question: string; you: number; them: number }) {
   const pos = (n: number) => `${50 + (Math.max(-3, Math.min(3, n)) / 3) * 46}%`;
@@ -158,12 +189,13 @@ export function showReveal(r: Reveal, mySide: 'A' | 'B', names: { A: string; B: 
       rr ? h('div', { class: 'reso-wrap frame' }, resonanceBlock(rr), rr.rows?.length ? h('div', { class: 'scale' }, h('div', { class: 'sh' }, h('span', null, 'no'), h('span', null, 'yes')), rr.rows.map((row) => scaleRow(row))) : null) : null,
       debate ? h('div', { class: 'settled-card' }, h('div', { class: 'q' }, `“${debate.question}”`), h('div', { class: 'n' }, settledLine(debate))) : null,
       h('div', { class: 'agendas' }, card(mySide), card(mySide === 'A' ? 'B' : 'A')),
+      beliefs(r),
       h('h2', null, 'Said and Delivered'),
       h('div', { class: 'tl' }, timeline.length ? timeline : h('div', { class: 'fine', style: 'font-size:15px' }, 'No messages crossed this round.')),
       r.chamber.length ? h('h2', null, 'Inside the Chamber') : null,
-      r.chamber.length ? h('div', { class: 'chamber-log frame' }, r.chamber.map((c) => h('div', null, h('b', null, c.from), ': ', c.text))) : null,
+      r.chamber.length ? h('div', { class: 'chamber-log frame' }, r.chamber.map((c) => h('div', null, h('b', null, modName(c.from)), ': ', c.text))) : null,
       r.worldEvents.length ? h('h2', null, 'What the Agents Did Alone') : null,
-      r.worldEvents.length ? h('div', { class: 'chamber-log frame' }, r.worldEvents.map((w) => h('div', null, h('b', null, w.actor), ' ', w.action, w.reason ? `. ${w.reason}` : ''))) : null,
+      r.worldEvents.length ? h('div', { class: 'chamber-log frame' }, r.worldEvents.map((w) => h('div', null, h('b', null, modName(w.actor)), ' ', w.action, w.reason ? `. ${w.reason}` : ''))) : null,
       h('div', { class: 'record' }, rule(), h('p', null, 'Your verdict has been posted to the Commons record.'), h('small', null, 'Petitions I, II and III are closed.')),
       h(
         'div',

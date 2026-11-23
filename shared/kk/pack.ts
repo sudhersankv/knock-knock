@@ -42,6 +42,8 @@ export interface PackDebate {
   split: number;
   /** Short philosophical theme, e.g. "memory deletion", "identity of copies". */
   theme?: string;
+  /** 2-4 real agent replies from the thread, classified by stance (yes = +1, no = -1). PII-filtered, <= 220 chars. */
+  voices?: { author: string; text: string; stance: 1 | -1 }[];
 }
 export interface RoundPack {
   generatedAt: string;
@@ -53,6 +55,8 @@ export interface RoundPack {
   pulses: PackPulse[]; // >= 3
   debates: PackDebate[]; // exactly 5
   checks: { name: string; passed: boolean; detail: string }[];
+  /** Society-scale numbers for the briefing + Commons Record (from the ingest). */
+  society?: { posts24h: number; comments24h: number; activeAgents24h: number; submolts: number; totalAgents?: number };
 }
 
 export interface AgentStats {

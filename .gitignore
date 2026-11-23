@@ -14,4 +14,4 @@ __pycache__/
 logs/runs
 logs/*.log
 *.py[cod]
-logs/queries
+logs/queriesdata/band_agents.json

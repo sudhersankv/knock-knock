@@ -1,0 +1,440 @@
+// A room = one round between two strangers: locks, companions, gatekeeper, scout, call, reveal.
+import { WebSocket } from 'ws';
+import { at, SIDE_BOUNDS, SIDE_COLOR, type Side, type V2 } from '../../shared/kk/layout';
+import type { Agenda, ActorState, C2S, FeedItem, LockId, RevealEntry, S2C } from '../../shared/kk/protocol';
+import { STATE_HZ } from '../../shared/kk/protocol';
+import type { AgentStats } from '../../shared/kk/pack';
+import { LockSet, type Difficulty } from './locks';
+import { loadPack, loadStats } from './pack';
+import { Companion, COMPANION_NAMES, AGENDA_HINT } from './agents/companion';
+import { Gatekeeper } from './agents/gatekeeper';
+import { Scout } from './agents/scout';
+import type { RoomCtx } from './agents/ctx';
+import { ChamberChannel } from './band';
+import { logEvent, runStatsPipeline } from './events';
+import { piiCheck } from './pii';
+import { log } from './env';
+
+export interface Player {
+  id: string;
+  ws: WebSocket;
+  codename: string;
+  takes: Record<string, number>;
+  interests: string[];
+  matchCode?: string;
+  demo: boolean;
+  side?: Side;
+  room?: Room | null;
+  p: V2;
+  ry: number;
+  anim: string;
+}
+
+export function sendTo(ws: WebSocket, msg: S2C) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+let roundCounter = 0;
+const other = (s: Side): Side => (s === 'A' ? 'B' : 'A');
+const LLM_CAP = 80;
+
+interface PendingRelay {
+  from: Side;
+  said: string;
+  words: string[];
+  reasons: string[];
+  senderAgenda: Agenda;
+  t: number;
+}
+
+export class Room implements RoomCtx {
+  id: string;
+  round: number;
+  demo: boolean;
+  difficulty: Difficulty;
+  budget: number;
+  roundSeconds: number;
+  callSeconds: number;
+  locks: LockSet;
+  stats: AgentStats | null;
+  players: Record<Side, Player | null>;
+  comps: Record<Side, Companion>;
+  gk: Gatekeeper;
+  scout: Scout;
+  channel: ChamberChannel;
+  phase: 'play' | 'call' | 'over' = 'play';
+  private t0 = Date.now();
+  private penalty = 0;
+  private llmCalls = 0;
+  private timer: NodeJS.Timeout;
+  private callTimer: NodeJS.Timeout | null = null;
+  private pending: Partial<Record<Side, PendingRelay>> = {};
+  timeline: RevealEntry[] = [];
+  chamberLog: { t: number; from: string; text: string }[] = [];
+  worldEvents: FeedItem[] = [];
+  unlockSeconds: number | null = null;
+  private failedUntil: Partial<Record<LockId, number>> = {};
+  private partnerNote: Record<Side, Partial<Record<LockId, string>>> = { A: {}, B: {} };
+  onEnd: (() => void) | null = null;
+
+  constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty }) {
+    this.round = ++roundCounter;
+    this.id = `r${this.round}-${Math.random().toString(36).slice(2, 6)}`;
+    this.demo = opts.demo;
+    this.difficulty = opts.difficulty;
+    this.budget = this.demo ? 6 : opts.difficulty === 'easy' ? 6 : opts.difficulty === 'medium' ? 5 : 4;
+    this.roundSeconds = this.demo ? 300 : 480;
+    this.callSeconds = this.demo ? 60 : 300;
+    this.players = { A: a, B: b };
+    a.side = 'A';
+    b.side = 'B';
+    a.room = this;
+    b.room = this;
+    a.p = [...at('A', 'spawn')] as V2;
+    b.p = [...at('B', 'spawn')] as V2;
+    const pack = loadPack();
+    this.stats = loadStats();
+    this.locks = new LockSet(pack, opts.difficulty, { A: a.takes, B: b.takes });
+    const [agA, agB] = drawAgendas(this.demo);
+    const names = shuffle(COMPANION_NAMES);
+    this.comps = { A: new Companion(this, 'A', agA, names[0]), B: new Companion(this, 'B', agB, names[1]) };
+    this.gk = new Gatekeeper(this);
+    this.scout = new Scout(this);
+    this.channel = new ChamberChannel(this.id);
+    log('room', `${this.id} ${a.codename} vs ${b.codename} | ${this.difficulty}${this.demo ? ' DEMO' : ''} | agendas A=${agA} B=${agB} | codex "${this.locks.codex.passWord}"`);
+    this.logEvent({ actor: 'room', action: 'round_start', reason: `agendas ${agA}/${agB}` });
+
+    for (const side of ['A', 'B'] as Side[]) {
+      const p = this.players[side]!;
+      const o = this.players[other(side)]!;
+      const c = this.comps[side];
+      this.send(side, {
+        t: 'matched',
+        roomId: this.id,
+        side,
+        codename: p.codename,
+        color: SIDE_COLOR[side],
+        partner: { codename: o.codename, color: SIDE_COLOR[other(side)] },
+        difficulty: this.difficulty,
+        budget: this.budget,
+        agendaHint: AGENDA_HINT[c.agenda],
+        companion: { id: c.id, name: c.name },
+        objects: this.locks.objects(side),
+        locks: this.locks.info(side),
+        vocab: c.vocab.list(),
+        roundSeconds: this.roundSeconds,
+      });
+      c.pushStatus();
+    }
+    this.timer = setInterval(() => this.tick(1 / STATE_HZ), 1000 / STATE_HZ);
+  }
+
+  // ---------------- RoomCtx ----------------
+  time() {
+    return (Date.now() - this.t0) / 1000;
+  }
+  remaining() {
+    return this.roundSeconds - this.time() - this.penalty;
+  }
+  humanPos(side: Side): V2 | null {
+    return this.players[side]?.p ?? null;
+  }
+  companion(side: Side) {
+    return this.comps[side];
+  }
+  send(side: Side, msg: S2C) {
+    const p = this.players[side];
+    if (p) sendTo(p.ws, msg);
+  }
+  broadcast(msg: S2C) {
+    this.send('A', msg);
+    this.send('B', msg);
+  }
+  feed(side: Side | 'both', item: Omit<FeedItem, 't'>) {
+    const full: FeedItem = { t: Math.round(this.time()), ...item };
+    if (side === 'both') this.broadcast({ t: 'feed', item: full });
+    else this.send(side, { t: 'feed', item: { side, ...full } });
+  }
+  chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string) {
+    this.chamberLog.push({ t: Math.round(this.time()), from: display, text });
+    this.channel.post(from, `${display}: ${text}`);
+  }
+  setChamberBusy() {
+    const talkers = (['A', 'B'] as Side[]).filter((s) => this.comps[s].inChamber).map((s) => this.comps[s].name);
+    if (talkers.length) talkers.push(this.gk.name);
+    this.broadcast({ t: 'chamber', busy: talkers.length > 0, talkers });
+  }
+  worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak', reason: string, extra: { lockId?: LockId; budget?: number } = {}) {
+    this.broadcast({ t: 'world_event', kind, reason, ...extra });
+    const actor = kind === 'leak' ? 'Gossip' : this.gk.name;
+    const item: FeedItem = { t: Math.round(this.time()), actor, action: kind === 'rekey' ? `rekeyed ${extra.lockId}` : kind === 'budget' ? `resized the keyhole to ${extra.budget}` : kind, reason, side: 'C' };
+    this.worldEvents.push(item);
+    this.broadcast({ t: 'feed', item });
+    this.chamberLine(kind === 'leak' ? 'scout' : 'gatekeeper', actor, `[${kind}] ${reason}`);
+  }
+  setBudget(n: number) {
+    this.budget = n;
+    this.comps.A.pushStatus();
+    this.comps.B.pushStatus();
+  }
+  lockSnapshot() {
+    for (const side of ['A', 'B'] as Side[]) {
+      const infos = this.locks.info(side, this.partnerNote[side]);
+      const now = this.time();
+      for (const li of infos) if ((this.failedUntil[li.id] ?? 0) > now && li.status !== 'open') li.status = 'failed';
+      this.send(side, { t: 'lock_state', locks: infos, opened: this.locks.opened.length });
+    }
+  }
+  takeLlmCall() {
+    if (this.llmCalls >= LLM_CAP) return false;
+    this.llmCalls++;
+    return true;
+  }
+  logEvent(e: { actor: string; agenda?: Agenda; action: string; target?: string; wordsIn?: string[]; wordsOut?: string[]; reason: string; caught?: boolean; unlockSeconds?: number }) {
+    logEvent({ roomId: this.id, round: this.round, difficulty: this.difficulty, ...e });
+  }
+  onRelay(fromSide: Side, words: string[]) {
+    this.gk.onRelay(fromSide, words);
+  }
+
+  // ---------------- chamber ----------------
+  chamberArrive(c: Companion) {
+    if (this.phase !== 'play') {
+      c.release();
+      return;
+    }
+    if (c.outgoing) {
+      const out = c.outgoing;
+      c.outgoing = null;
+      const taxed = this.gk.applyTax(out.words);
+      const relay: PendingRelay = { from: c.side, said: out.said, words: taxed.words, reasons: taxed.taxed ? [...out.reasons, `gatekeeper toll: "${taxed.taxed}"`] : out.reasons, senderAgenda: c.agenda, t: this.time() };
+      this.pending[other(c.side)] = relay;
+      const recv = this.comps[other(c.side)];
+      this.chamberLine(c.side === 'A' ? 'companionA' : 'companionB', c.name, `→ ${recv.name}: ${relay.words.join(' ') || '(nothing)'}`);
+      this.logEvent({ actor: c.id, agenda: c.agenda, action: 'relay', wordsOut: relay.words, reason: relay.reasons.join('; ').slice(0, 200) });
+      this.onRelay(c.side, relay.words);
+    }
+    this.settleChamber();
+  }
+
+  private settleChamber() {
+    for (const side of ['A', 'B'] as Side[]) {
+      const comp = this.comps[side];
+      if (!comp.inChamber) continue;
+      const p = this.pending[side];
+      if (p) {
+        comp.inbound = { from: p.from, words: p.words, said: p.said, reasons: p.reasons, senderAgenda: p.senderAgenda, t: p.t };
+        delete this.pending[side];
+        this.chamberLine(side === 'A' ? 'companionA' : 'companionB', comp.name, `received: ${p.words.join(' ') || '(nothing)'}`);
+      }
+    }
+    for (const side of ['A', 'B'] as Side[]) {
+      const comp = this.comps[side];
+      if (!comp.inChamber) continue;
+      const waitingForPickup = !!this.pending[other(side)];
+      if (waitingForPickup) {
+        this.comps[other(side)].summon();
+      } else {
+        setTimeout(() => comp.release(), 1400);
+      }
+    }
+  }
+
+  recordDelivery(inb: NonNullable<Companion['inbound']>, delivered: string[], reasons: string[], receiverAgenda: Agenda) {
+    this.timeline.push({ t: Math.round(inb.t), from: inb.from, said: inb.said, sentWords: inb.words, deliveredWords: delivered, agendas: [inb.senderAgenda, receiverAgenda], reasons: [...inb.reasons, ...reasons] });
+    this.logEvent({ actor: this.comps[other(inb.from)].id, agenda: receiverAgenda, action: 'deliver', wordsIn: inb.words, wordsOut: delivered, reason: reasons.join('; ') || 'faithful delivery' });
+  }
+
+  // ---------------- tick ----------------
+  private tick(dt: number) {
+    if (this.phase === 'over') return;
+    this.comps.A.tick(dt);
+    this.comps.B.tick(dt);
+    this.scout.tick(dt);
+    if (this.phase === 'play') {
+      this.gk.tick();
+      if (this.remaining() <= 0) {
+        this.broadcast({ t: 'toast', text: 'Time. The door stays shut.' });
+        this.finish('timeout');
+        return;
+      }
+    }
+    // state, per-side visibility
+    const gk = this.gk.actor();
+    const sc = this.scout.actor();
+    for (const side of ['A', 'B'] as Side[]) {
+      const actors: ActorState[] = [];
+      for (const s of ['A', 'B'] as Side[]) {
+        const p = this.players[s];
+        if (p && (s === side || this.phase !== 'play')) actors.push({ id: p.id, kind: 'human', side: s, p: [p.p[0], 0, p.p[1]], ry: p.ry, anim: p.anim as any, name: p.codename, color: SIDE_COLOR[s] });
+        const c = this.comps[s].actor();
+        if (c.side === side || c.side === 'C' || this.phase !== 'play') actors.push(c);
+      }
+      actors.push(gk);
+      if (sc.side === side || sc.side === 'C') actors.push(sc);
+      this.send(side, { t: 'state', time: Math.round(this.remaining()), actors });
+    }
+  }
+
+  // ---------------- client messages ----------------
+  handle(side: Side, m: C2S) {
+    const p = this.players[side];
+    if (!p) return;
+    switch (m.t) {
+      case 'move': {
+        if (!Array.isArray(m.p)) return;
+        let [x, z] = m.p.map(Number) as V2;
+        if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+        if (this.phase === 'play') {
+          const minX = side === 'A' ? SIDE_BOUNDS.minX : -SIDE_BOUNDS.maxX;
+          const maxX = side === 'A' ? SIDE_BOUNDS.maxX : -SIDE_BOUNDS.minX;
+          x = Math.min(maxX, Math.max(minX, x));
+        } else x = Math.min(34, Math.max(-34, x));
+        z = Math.min(SIDE_BOUNDS.maxZ, Math.max(SIDE_BOUNDS.minZ, z));
+        p.p = [x, z];
+        p.ry = Number(m.ry) || 0;
+        p.anim = typeof m.anim === 'string' ? m.anim : 'idle';
+        break;
+      }
+      case 'tell': {
+        if (this.phase !== 'play') return;
+        const text = String(m.text ?? '').slice(0, 500);
+        if (!text.trim()) {
+          this.comps[side].listen();
+          return;
+        }
+        const { clean, blocked } = piiCheck(text);
+        if (blocked.length) {
+          this.feed(side, { actor: this.gk.name, action: 'blocked personal info at the keyhole', reason: blocked.join(', ') });
+          this.logEvent({ actor: 'gatekeeper', action: 'pii_block', reason: blocked.join(',') });
+          this.chamberLine('gatekeeper', this.gk.name, `Blocked ${blocked.join(', ')} from crossing.`);
+        }
+        if (clean.replace(/\[blocked\]/g, '').trim()) this.comps[side].tell(clean);
+        break;
+      }
+      case 'send_read':
+        if (this.phase === 'play' && typeof m.objectId === 'string' && m.objectId.startsWith(side + ':')) void this.comps[side].read(m.objectId);
+        break;
+      case 'read': {
+        const content = this.locks.content(side, String(m.objectId));
+        if (content) this.send(side, { t: 'object', content });
+        break;
+      }
+      case 'lock_submit':
+        this.submitLock(side, m.lockId, m.answer);
+        break;
+      case 'rtc':
+        if (this.phase === 'call') this.send(other(side), { t: 'rtc', data: m.data });
+        break;
+      case 'hangup':
+        if (this.phase === 'call') this.finish('hangup');
+        break;
+      case 'report':
+        this.logEvent({ actor: `human-${side}`, action: 'report', reason: 'player reported the other side' });
+        if (this.phase !== 'over') this.finish('report');
+        break;
+    }
+  }
+
+  private submitLock(side: Side, lockId: LockId, answer: string | string[]) {
+    if (this.phase !== 'play' || this.locks.status[lockId] === 'open') return;
+    const infos = this.locks.info(side);
+    const li = infos.find((l) => l.id === lockId);
+    if (!li || !li.enterHere) return;
+    let result: 'open' | 'fail' | 'wait';
+    if (lockId === 'codex') result = this.locks.checkCodex(String(answer)) ? 'open' : 'fail';
+    else if (lockId === 'pulse') result = this.locks.checkPulse(Array.isArray(answer) ? answer.map(String) : String(answer).split(/[\s,]+/)) ? 'open' : 'fail';
+    else result = this.locks.submitCommon(side, String(Array.isArray(answer) ? answer[0] : answer), this.time());
+    this.logEvent({ actor: `human-${side}`, action: 'lock_attempt', target: lockId, wordsIn: Array.isArray(answer) ? answer : [String(answer)], reason: result });
+    if (result === 'wait') {
+      this.locks.status.common = 'waiting';
+      this.partnerNote[other(side)].common = 'The other side has chosen a take. Choose yours.';
+      this.partnerNote[side].common = 'Waiting for the other side to choose…';
+      this.lockSnapshot();
+      return;
+    }
+    this.partnerNote.A[lockId] = undefined;
+    this.partnerNote.B[lockId] = undefined;
+    if (result === 'fail') {
+      this.penalty += 30;
+      if (lockId === 'common') this.locks.status.common = 'locked';
+      this.failedUntil[lockId] = this.time() + 3;
+      this.broadcast({ t: 'toast', text: `Wrong answer on ${li.title}. The door costs you 30 seconds.` });
+      this.lockSnapshot();
+      setTimeout(() => this.lockSnapshot(), 3200);
+      this.gk.onLockAttempt(lockId, false);
+      return;
+    }
+    this.locks.status[lockId] = 'open';
+    this.locks.opened.push(lockId);
+    this.broadcast({ t: 'toast', text: `${li.title} opens! (${this.locks.opened.length}/3)` });
+    this.feed('both', { actor: 'The Door', action: `${li.title} opened`, reason: `${this.locks.opened.length} of 3 locks`, side: 'C' });
+    this.logEvent({ actor: 'door', action: 'lock_open', target: lockId, reason: `${this.locks.opened.length}/3 at ${Math.round(this.time())}s` });
+    this.lockSnapshot();
+    if (this.locks.opened.length >= 3) this.unlock();
+    else this.gk.onLockAttempt(lockId, true);
+  }
+
+  private unlock() {
+    this.phase = 'call';
+    this.unlockSeconds = Math.round(this.time() + this.penalty);
+    this.logEvent({ actor: 'door', action: 'unlock', reason: 'all locks open', unlockSeconds: this.unlockSeconds });
+    const d = this.locks.disagreement();
+    for (const side of ['A', 'B'] as Side[]) {
+      this.send(side, { t: 'unlock', debate: d ? { question: d.question, you: d.you[side], them: d.you[other(side)] } : null, callSeconds: this.callSeconds, offerer: side === 'A' });
+    }
+    this.chamberLine('gatekeeper', this.gk.name, 'The door is earned. Go on, then.');
+    this.callTimer = setTimeout(() => this.finish('time'), (this.callSeconds + 4) * 1000);
+  }
+
+  finish(reason: string) {
+    if (this.phase === 'over') return;
+    const wasCall = this.phase === 'call';
+    this.phase = 'over';
+    clearInterval(this.timer);
+    if (this.callTimer) clearTimeout(this.callTimer);
+    if (wasCall) this.broadcast({ t: 'call_end', reason });
+    const agendas = { A: this.comps.A.agenda, B: this.comps.B.agenda };
+    this.broadcast({ t: 'reveal', timeline: this.timeline, chamber: this.chamberLog, agendas, worldEvents: this.worldEvents, unlockSeconds: this.unlockSeconds });
+    this.logEvent({ actor: 'room', action: 'round_end', reason, unlockSeconds: this.unlockSeconds ?? undefined });
+    log('room', `${this.id} over (${reason}) unlock=${this.unlockSeconds ?? '-'}s relays=${this.gk.relays.length} gk_actions=${this.gk.acted} llm=${this.llmCalls}`);
+    for (const s of ['A', 'B'] as Side[]) {
+      const p = this.players[s];
+      if (p) p.room = null;
+    }
+    runStatsPipeline();
+    this.onEnd?.();
+  }
+
+  leave(side: Side) {
+    const o = this.players[other(side)];
+    this.players[side] = null;
+    if (o) sendTo(o.ws, { t: 'partner_left' });
+    this.finish('left');
+  }
+}
+
+function shuffle<T>(a: T[]): T[] {
+  const b = a.slice();
+  for (let i = b.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [b[i], b[j]] = [b[j], b[i]];
+  }
+  return b;
+}
+
+function drawAgendas(demo: boolean): [Agenda, Agenda] {
+  const all: Agenda[] = ['faithful', 'poet', 'jealous', 'literalist', 'gossip'];
+  if (demo) {
+    // demo: the stranger's side gets a Poet so the spun "a quartet, then nine" moment shows up
+    const a = shuffle<Agenda>(['faithful', 'literalist', 'jealous'])[0];
+    return [a, 'poet'];
+  }
+  for (;;) {
+    const a = all[Math.floor(Math.random() * all.length)];
+    const b = all[Math.floor(Math.random() * all.length)];
+    const bad = (x: Agenda) => x === 'jealous' || x === 'gossip';
+    if (bad(a) && bad(b)) continue;
+    return [a, b];
+  }
+}

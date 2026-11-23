@@ -1,0 +1,27 @@
+# Knock Knock on Fly.io — one always-on machine (rooms live in memory).
+# Secrets: fly secrets set LLM_BASE_URL=... LLM_API_KEY=... LLM_FAST=... LLM_STRONG=... BAND_API_KEY=... TELEM_API_KEY=...
+app = "knock-knock-1o6p"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8787"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

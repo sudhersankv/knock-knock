@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+.git
+data/*.duckdb
+data/*.duckdb.wal
+data/events.ndjson
+data/raw
+__pycache__
+.bruin.local.yml

@@ -72,14 +72,17 @@ export class Room implements RoomCtx {
   extraBan: string | null = null;
   private mercyGiven = false;
 
-  constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty }) {
+  practice = false;
+
+  constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty; practice?: boolean }) {
     this.round = ++roundCounter;
     this.id = `r${this.round}-${Math.random().toString(36).slice(2, 6)}`;
     this.demo = opts.demo;
     this.difficulty = opts.difficulty;
-    this.budget = this.demo ? 6 : opts.difficulty === 'easy' ? 6 : opts.difficulty === 'medium' ? 5 : 4;
-    this.roundSeconds = this.demo ? 300 : 480;
-    this.callSeconds = this.demo ? 60 : 300;
+    this.practice = !!opts.practice;
+    this.budget = this.demo || this.practice ? 6 : opts.difficulty === 'easy' ? 6 : opts.difficulty === 'medium' ? 5 : 4;
+    this.roundSeconds = this.practice ? 900 : this.demo ? 300 : 480;
+    this.callSeconds = this.practice ? 0 : this.demo ? 60 : 300;
     this.players = { A: a, B: b };
     a.side = 'A';
     b.side = 'B';
@@ -90,7 +93,7 @@ export class Room implements RoomCtx {
     const pack = loadPack();
     this.stats = loadStats();
     this.locks = new LockSet(pack, opts.difficulty, { A: a.takes, B: b.takes });
-    const [agA, agB] = drawAgendas(this.demo);
+    const [agA, agB]: [Agenda, Agenda] = this.practice ? ['faithful', 'poet'] : drawAgendas(this.demo);
     const names = shuffle(COMPANION_NAMES);
     this.comps = { A: new Companion(this, 'A', agA, names[0]), B: new Companion(this, 'B', agB, names[1]) };
     this.gk = new Gatekeeper(this);
@@ -123,6 +126,7 @@ export class Room implements RoomCtx {
         locks: this.locks.info(side, {}, [...this.banned].sort()),
         vocab: c.vocab.list(),
         roundSeconds: this.roundSeconds,
+        practice: this.practice || undefined,
       });
       c.pushStatus();
       this.send(side, { t: 'briefing', lines: BRIEFING });
@@ -454,6 +458,11 @@ export class Room implements RoomCtx {
       this.sendQuest(side);
     }
     this.chamberLine('gatekeeper', this.gk.name, 'The petitions are settled. The Commons thanks you for your service. You may now speak.');
+    if (this.practice) {
+      this.broadcast({ t: 'toast', text: "Practice complete. In a real match, this is where you'd talk." });
+      this.callTimer = setTimeout(() => this.finish('practice'), 2500);
+      return;
+    }
     this.callTimer = setTimeout(() => this.finish('time'), (this.callSeconds + 4) * 1000);
   }
 

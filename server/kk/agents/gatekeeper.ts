@@ -94,8 +94,16 @@ export class Gatekeeper {
     if (this.allowed('set_budget')) options.push(`set_budget (budget: ${Math.max(3, this.room.budget - 1)} or ${Math.min(7, this.room.budget + 1)}) — narrow if racing, widen if stuck`);
     if (this.allowed('tax') && !this.pendingTax) options.push('tax — take one word from the next message as a toll');
     if (this.allowed('mercy') && t > target * 0.6 && openIds.length) options.push('mercy — give both humans a hint if they are clearly stuck');
-    const cands = !this.banned && t >= 90 ? this.banCandidates() : [];
+    const cands = !this.banned && t >= 90 && !this.room.practice ? this.banCandidates() : [];
     if (cands.length) options.push(`ban (word: one of ${cands.join('|')}) — couriers keep using it to signal opinions; place it under review (only once per session)`);
+    if (this.room.practice) {
+      options.length = 0;
+      if (this.acted === 0 && this.allowed('set_budget') && t > 60) options.push(`set_budget (budget: ${Math.max(4, this.room.budget - 1)}) — narrow the keyhole once, for flavor`);
+      if (!options.length) {
+        this.deciding = false;
+        return;
+      }
+    }
     const obs = {
       trigger,
       elapsed_s: Math.round(t),
@@ -125,6 +133,7 @@ export class Gatekeeper {
   }
 
   private execute(r: { action: GkAction; lock?: LockId; budget?: number; word?: string; line?: string; reason?: string }) {
+    if (this.room.practice && (r.action !== 'set_budget' || this.acted > 0)) return;
     const reason = String(r.reason ?? 'the door must be earned').slice(0, 120);
     const line = String(r.line ?? '').slice(0, 140);
     const t = this.room.time();

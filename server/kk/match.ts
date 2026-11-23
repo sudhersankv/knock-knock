@@ -3,6 +3,7 @@ import { Room, sendTo, type Player } from './room';
 import type { Difficulty } from './locks';
 import { loadPack } from './pack';
 import { log } from './env';
+import { startPractice } from './practiceBot';
 
 const ADJ = ['Quiet', 'Brave', 'Sleepy', 'Lucky', 'Velvet', 'Rusty', 'Misty', 'Golden', 'Hidden', 'Clever', 'Gentle', 'Wild', 'Silver', 'Hollow', 'Bright', 'Patient'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Moth', 'Badger', 'Wren', 'Lynx', 'Newt', 'Raven', 'Hare', 'Gecko', 'Owl', 'Koi', 'Marten', 'Crane', 'Toad'];
@@ -31,6 +32,10 @@ const tier = (c: number): Difficulty => (c >= 0.6 ? 'easy' : c >= 0.35 ? 'medium
 
 export function enqueue(p: Player) {
   dequeue(p);
+  if (p.matchCode && p.matchCode.toUpperCase().startsWith('PRACTICE')) {
+    startPractice(p);
+    return;
+  }
   if (p.matchCode) {
     const code = p.matchCode.toUpperCase().slice(0, 12);
     const waiting = coded.get(code);

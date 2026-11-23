@@ -133,6 +133,8 @@ export type S2C =
       locks: LockInfo[];
       vocab: string[];
       roundSeconds: number;
+      /** Solo practice vs a partner bot: the client forces the orientation tutorial on. */
+      practice?: boolean;
     }
   | { t: 'state'; time: number; actors: ActorState[] }
   | { t: 'object'; content: ObjContent }

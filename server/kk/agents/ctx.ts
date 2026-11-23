@@ -9,6 +9,8 @@ export interface RoomCtx {
   id: string;
   round: number;
   demo: boolean;
+  /** Solo practice vs an in-process partner bot (tutorial pacing, gentler Moderator). */
+  practice: boolean;
   difficulty: string;
   budget: number;
   locks: LockSet;

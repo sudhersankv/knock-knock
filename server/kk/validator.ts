@@ -33,7 +33,8 @@ export function isNumber(w: string) {
 export const BANNED_BASE = ['yes', 'no', 'agree', 'disagree', 'maybe', 'true', 'false', 'good', 'bad', 'like', 'love', 'hate', 'want', 'right', 'wrong', 'correct', 'support', 'against', 'for'];
 
 export class Vocab {
-  private set = new Set<string>();
+  /** lemma -> the form it was first learned in (so "agents" stays "agents" when listed). */
+  private map = new Map<string, string>();
   /** Shared, live set of banned words (owned by the room). */
   banned: Set<string>;
   constructor(words: Iterable<string>, banned: Set<string> = new Set()) {
@@ -48,25 +49,25 @@ export class Vocab {
     const t = tokenize(w)[0];
     if (!t) return false;
     const l = lemma(t);
-    if (this.set.has(l)) return false;
-    this.set.add(l);
+    if (this.map.has(l)) return false;
+    this.map.set(l, t);
     return true;
   }
   has(w: string): boolean {
     const t = w.toLowerCase();
     if (isNumber(t)) return true;
     if (this.isBanned(t)) return false;
-    return this.set.has(lemma(t)) || this.set.has(t);
+    return this.map.has(lemma(t)) || this.map.has(t);
   }
   get size() {
-    return this.set.size;
+    return this.map.size;
   }
   list(): string[] {
-    return [...this.set].filter((w) => !this.isBanned(w));
+    return [...this.map.values()].filter((w) => !this.isBanned(w));
   }
   /** All learned words including currently banned ones (for rebuilding). */
   all(): string[] {
-    return [...this.set];
+    return [...this.map.values()];
   }
 }
 

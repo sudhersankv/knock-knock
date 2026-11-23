@@ -251,4 +251,129 @@ async function waitFor(fn: () => boolean, ms: number) {
   while (!fn() && Date.now() < end) await sleep(200);
   return fn();
 }
-main();
+// ---------------- PRACTICE mode: one client (side A) vs the server's in-process partner bot ----------------
+async function practice() {
+  const ws = new WebSocket(url);
+  const send = (m: C2S) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
+  let locks: LockInfo[] = [];
+  let objects: ObjInfo[] = [];
+  let pos: [number, number] | undefined;
+  let practiceFlag = false;
+  let unlockedP = false, revealed = false;
+  let courierHome = true;
+  const deliveries: string[] = [];
+  const contents = new Map<string, ObjContent>();
+  const status = (id: string) => locks.find((l) => l.id === id)?.status;
+  ws.on('message', (raw) => {
+    const m = JSON.parse(String(raw)) as S2C;
+    switch (m.t) {
+      case 'welcome': {
+        const takes: Record<string, number> = {};
+        m.debates.forEach((d, i) => (takes[d.id] = [2, -2, 1, 3, -1][i] ?? 1));
+        send({ t: 'hello', codename: 'Practicer', takes, interests: ['games'], matchCode: code });
+        break;
+      }
+      case 'matched':
+        practiceFlag = !!m.practice;
+        locks = m.locks;
+        objects = m.objects;
+        console.log(ts(), `matched side ${m.side} practice=${m.practice} partner=${m.partner.codename} budget=${m.budget} roundSeconds=${m.roundSeconds}`);
+        break;
+      case 'lock_state':
+        locks = m.locks;
+        console.log(ts(), 'locks', m.locks.map((l) => `${l.id}:${l.status}`).join(' '), m.locks.find((l) => l.id === 'common')?.partnerStatus ?? '');
+        break;
+      case 'object':
+        contents.set(m.content.id, m.content);
+        break;
+      case 'companion':
+        courierHome = !['away', 'waiting_reply', 'walking', 'chamber', 'delivering', 'thinking', 'returning'].includes(m.status);
+        break;
+      case 'courier_claim':
+        console.log(ts(), 'CLAIM', m.text);
+        break;
+      case 'holding':
+        console.log(ts(), m.courier ? `HOLDING ${m.courier.name}` : 'holding nothing');
+        if (m.courier) setTimeout(() => send({ t: 'send_back', text: 'hello friend, 3 2' }), 1000);
+        break;
+      case 'bubble':
+        console.log(ts(), `BUBBLE [${m.kind}] ${m.name}: "${m.text}"`);
+        if (m.kind === 'delivery') deliveries.push(m.words.join(' '));
+        break;
+      case 'world_event':
+        console.log(ts(), `WORLD EVENT ${m.kind}: ${m.reason}`);
+        break;
+      case 'toast':
+        console.log(ts(), 'TOAST', m.text);
+        break;
+      case 'unlock':
+        unlockedP = true;
+        console.log(ts(), `UNLOCK callSeconds=${m.callSeconds} resonance agreed=${m.resonance?.agreed}/${m.resonance?.total} readRight=${m.resonance?.readRight}`);
+        break;
+      case 'reveal':
+        revealed = true;
+        console.log(ts(), `REVEAL unlockSeconds=${m.unlockSeconds} agendas=${JSON.stringify(m.agendas)}`);
+        for (const e of m.timeline) console.log(`   ${e.from}${e.reply ? ' (reply)' : ''}: "${e.said}" -> [${(e.claimed ?? []).join(' ')}] -> [${e.deliveredWords.join(' ')}]`);
+        break;
+    }
+  });
+  setInterval(() => {
+    const [x, z] = pos ?? at('A', 'spawn');
+    send({ t: 'move', p: [x, z], ry: 0, anim: 'idle' });
+  }, 100);
+  await waitFor(() => objects.length > 0, 10000);
+  // treasure hunt
+  for (const sc of objects.filter((o) => o.kind === 'scrap')) {
+    pos = sc.pos;
+    await sleep(300);
+    send({ t: 'read', objectId: sc.id });
+    await sleep(200);
+  }
+  pos = undefined;
+  send({ t: 'read', objectId: 'A:codex' });
+  send({ t: 'read', objectId: 'A:board' });
+  await sleep(800);
+  // Petition I: point at the Lost Word with numbers
+  const pw = (/“([^”]+)”/.exec(locks.find((l) => l.id === 'codex')!.prompt)?.[1] ?? '').toLowerCase();
+  const cx = contents.get('A:codex') as any;
+  const p1 = findWord(cx.lines, pw);
+  await waitFor(() => courierHome, 30000);
+  send({ t: 'tell', text: `line ${p1.line} word ${p1.word}` });
+  console.log(ts(), 'told courier', `line ${p1.line} word ${p1.word}`, '(pass word', pw + ')');
+  await waitFor(() => status('codex') === 'open', 90000);
+  // Petition II: the partner's reply (carried back by our courier) names the districts busiest-first
+  await waitFor(() => deliveries.some((d) => /busiest|then/.test(d)) || deliveries.length >= 3, 60000);
+  send({ t: 'read', objectId: 'A:board' });
+  await sleep(600);
+  const legend = (contents.get('A:board') as any).runes as { glyph: string; submolt: string }[];
+  const said = deliveries.find((d) => /busiest|then/.test(d)) ?? deliveries.join(' ');
+  const order = legend.map((r) => ({ g: r.glyph, i: said.indexOf(r.submolt.toLowerCase()) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i).map((x) => x.g);
+  console.log(ts(), 'census reply:', JSON.stringify(said), '-> runes', order.join(''));
+  const runes = locks.find((l) => l.id === 'pulse')!.options!.map((o) => o.id);
+  const tries = order.length === runes.length ? [order, ...perms(runes)] : perms(runes);
+  for (const t of tries) {
+    if (status('pulse') === 'open') break;
+    send({ t: 'lock_submit', lockId: 'pulse', answer: t });
+    await sleep(1200);
+  }
+  // Petition III: send our stance, read theirs from the reply, predict
+  await waitFor(() => courierHome, 40000);
+  const before = deliveries.length;
+  send({ t: 'tell', text: 'I lean up 2' });
+  await waitFor(() => deliveries.slice(before).some((d) => /\b(up|down)\b/.test(d)), 60000);
+  const st = deliveries.slice(before).find((d) => /\b(up|down)\b/.test(d)) ?? '';
+  const lean = /\bdown\b/.test(st) ? 'no' : 'yes';
+  const n = Number((st.match(/\d/) ?? ['2'])[0]) || 2;
+  console.log(ts(), 'their stance delivery', JSON.stringify(st), '-> predict', `${lean}:${n}`);
+  send({ t: 'lock_submit', lockId: 'common', answer: `${lean}:${n}` });
+  await waitFor(() => revealed, 40000);
+  console.log('\n==== PRACTICE RESULT', { practiceFlag, unlocked: unlockedP, revealed, seconds: (Date.now() - T0) / 1000 });
+  process.exit(practiceFlag && unlockedP && revealed ? 0 : 1);
+}
+function perms<T>(a: T[]): T[][] {
+  if (a.length <= 1) return [a];
+  return a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p]));
+}
+
+if (code.toUpperCase().startsWith('PRACTICE')) practice();
+else main();

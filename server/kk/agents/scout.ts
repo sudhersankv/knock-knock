@@ -60,7 +60,7 @@ export class Scout {
         this.hintGiven.add(key);
         this.pauseUntil = t + 2.5;
         const hint = this.room.locks.hint(stuckLock);
-        const text = lost ? `I'll take “${lost}” off your companion. ${hint}` : `Free hint, kid: ${hint}`;
+        const text = lost ? `I'll take “${lost}” off your courier. ${hint}` : `Free hint, kid: ${hint}`;
         this.room.send(side, { t: 'bubble', actorId: this.id, name: this.name, words: text.split(' '), text, kind: 'line' });
         this.room.feed(side, { actor: this.name, action: lost ? `traded a hint for the word “${lost}”` : 'gave a free hint', reason: 'you looked stuck' });
         this.room.logEvent({ actor: 'scout', action: 'trade', target: side, wordsIn: lost ? [lost] : [], reason: hint });

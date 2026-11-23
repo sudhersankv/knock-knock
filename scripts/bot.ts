@@ -2,7 +2,7 @@
 // Joins both players to the same match code, exercises companions (read + relay), solves all 3 locks,
 // verifies unlock + reveal. Bots "cheat" by sharing memory between the two sides, but still send real relays.
 import WebSocket from 'ws';
-import type { S2C, C2S, ObjContent, LockInfo } from '../shared/kk/protocol';
+import type { S2C, C2S, ObjContent, LockInfo, ObjInfo } from '../shared/kk/protocol';
 import { at, type Side } from '../shared/kk/layout';
 
 const code = process.argv[2] ?? `BOT${Math.floor(Math.random() * 9999)}`;
@@ -18,6 +18,10 @@ interface Bot {
   locks: LockInfo[];
   deliveries: string[];
   debates: { id: string; question: string }[];
+  pos?: [number, number];
+  scraps: ObjInfo[];
+  found: number;
+  quest: string;
 }
 const shared: { passWord?: string; codexLines?: string[]; pulseOrder?: string[]; legend?: { glyph: string; submolt: string }[]; strongQ?: string } = {};
 let unlocked = false;
@@ -27,7 +31,7 @@ const worldEvents: string[] = [];
 function mkBot(name: string): Promise<Bot> {
   return new Promise((resolve) => {
     const ws = new WebSocket(url);
-    const bot: Bot = { ws, send: (m) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m)), objects: new Map(), locks: [], deliveries: [], debates: [] };
+    const bot: Bot = { ws, send: (m) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m)), objects: new Map(), locks: [], deliveries: [], debates: [], scraps: [], found: 0, quest: '' };
     ws.on('message', (raw) => onMsg(bot, name, JSON.parse(String(raw)) as S2C));
     ws.on('open', () => resolve(bot));
   });
@@ -49,8 +53,9 @@ function onMsg(b: Bot, name: string, m: S2C) {
     case 'matched':
       b.side = m.side;
       b.locks = m.locks;
+      b.scraps = m.objects.filter((o) => o.kind === 'scrap');
       console.log(ts(), name, `matched side ${m.side} difficulty=${m.difficulty} budget=${m.budget} companion=${m.companion.name} hint="${m.agendaHint}"`);
-      for (const o of m.objects) if (o.kind !== 'thread' && o.kind !== 'terminal') b.send({ t: 'read', objectId: o.id });
+      for (const o of m.objects) if (o.kind !== 'thread' && o.kind !== 'terminal' && o.kind !== 'scrap') b.send({ t: 'read', objectId: o.id });
       b.send({ t: 'read', objectId: `${m.side}:t1` });
       const lockA = m.locks.find((l) => l.id === 'codex');
       if (m.side === 'A' && lockA) shared.passWord = /“([^”]+)”/.exec(lockA.prompt)?.[1]?.toLowerCase();
@@ -59,7 +64,8 @@ function onMsg(b: Bot, name: string, m: S2C) {
     case 'object': {
       const c = m.content;
       b.objects.set(c.id, c);
-      if (c.kind === 'codex') shared.codexLines = c.lines;
+      if (c.kind === 'codex' && c.showLineNumbers && c.id.startsWith('B')) shared.codexLines = c.lines;
+      if (c.kind === 'scrap') console.log(ts(), name, `SHARD "${c.title}" (${c.from}): ${c.fragment} | teaches ${c.teaches.join(',')}`);
       if (c.kind === 'legend') shared.legend = c.runes;
       if (c.kind === 'pulse') shared.pulseOrder = [...c.bars].sort((x, y) => y.activity - x.activity).map((x) => x.submolt);
       break;
@@ -68,6 +74,18 @@ function onMsg(b: Bot, name: string, m: S2C) {
       if (m.added.length) console.log(ts(), name, `vocab +${m.added.length} (${m.added.slice(0, 5).join(',')}) total ${m.words.length}`);
       break;
     case 'companion':
+      break;
+    case 'briefing':
+      console.log(ts(), name, 'BRIEFING', m.lines.length, 'cards:', m.lines[0]);
+      break;
+    case 'quest': {
+      const q = m.steps.map((s) => `${s.done ? '[x]' : '[ ]'} ${s.text}`).join(' | ');
+      if (q !== b.quest) console.log(ts(), name, 'QUEST', q);
+      b.quest = q;
+      break;
+    }
+    case 'scrap_found':
+      b.found = m.found;
       break;
     case 'bubble':
       console.log(ts(), name, `BUBBLE [${m.kind}] ${m.name}: "${m.text}"`);
@@ -118,14 +136,28 @@ async function main() {
   // movement heartbeat
   setInterval(() => {
     for (const b of bots) if (b.side) {
-      const [x, z] = at(b.side, 'spawn');
-      b.send({ t: 'move', p: [x + Math.sin(Date.now() / 900) * 0.5, z], ry: 0, anim: 'idle' });
+      const [x, z] = b.pos ?? at(b.side, 'spawn');
+      b.send({ t: 'move', p: [x, z], ry: 0, anim: 'idle' });
     }
   }, 100);
 
   await waitFor(() => !!A.side && !!B.side && !!shared.codexLines, 15000);
   const sideA = A.side === 'A' ? A : B;
   const sideB = A.side === 'A' ? B : A;
+  // treasure hunt: walk to every shard and pick it up (both sides in parallel)
+  await Promise.all([sideA, sideB].map(async (b) => {
+    for (const sc of b.scraps) {
+      b.pos = sc.pos;
+      await sleep(350);
+      b.send({ t: 'read', objectId: sc.id });
+      await sleep(250);
+    }
+    b.pos = undefined;
+    b.send({ t: 'read', objectId: `${b.side}:board` });
+  }));
+  await sleep(600);
+  console.log(ts(), 'shards found A', sideA.found, '/', sideA.scraps.length, 'B', sideB.found, '/', sideB.scraps.length, 'legend', JSON.stringify(shared.legend));
+  sideA.send({ t: 'send_read', objectId: `A:codex` });
 
   // --- codex: A tells companion the line/word position
   await sleep(4500); // let the read finish first

@@ -36,6 +36,13 @@ const A_ANCHORS = {
   t4: [-27, -12] as V2,
   t5: [-11, 17] as V2,
   t6: [-28, 14] as V2,
+  /** Hidden petition-shard spots (treasure hunt). Tucked near props: fountain rim, bench, lamp base, crate, banner, wall foot. */
+  s1: [-25, 9] as V2,
+  s2: [-15, -15] as V2,
+  s3: [-31, -5] as V2,
+  s4: [-6.5, 15.5] as V2,
+  s5: [-21, -17] as V2,
+  s6: [-3.2, -11] as V2,
   /** Sponsor-agent (Scout) patrol loop on this side. */
   patrol: [[-8, -12], [-22, -14], [-30, 0], [-24, 16], [-10, 16], [-12, 0]] as V2[],
 };
@@ -58,7 +65,8 @@ export const CHAMBER = {
 };
 
 /** Object ids. Each side has its own copy: `${side}:${slot}` e.g. "A:codex", "B:t3". */
-export type ObjectSlot = 'codex' | 'board' | 'takes' | 'terminal' | (typeof THREAD_SLOTS)[number];
+export const SCRAP_SLOTS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
+export type ObjectSlot = 'codex' | 'board' | 'takes' | 'terminal' | (typeof THREAD_SLOTS)[number] | (typeof SCRAP_SLOTS)[number];
 export const objectId = (side: Side, slot: ObjectSlot) => `${side}:${slot}`;
 export function objectPos(id: string): V2 {
   const [side, slot] = id.split(':') as [Side, ObjectSlot];

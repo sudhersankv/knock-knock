@@ -1,10 +1,10 @@
 // A room = one round between two strangers: locks, companions, gatekeeper, scout, call, reveal.
 import { WebSocket } from 'ws';
-import { at, SIDE_BOUNDS, SIDE_COLOR, type Side, type V2 } from '../../shared/kk/layout';
-import type { Agenda, ActorState, C2S, FeedItem, LockId, RevealEntry, S2C } from '../../shared/kk/protocol';
+import { at, objectPos, INTERACT_RADIUS, SIDE_BOUNDS, SIDE_COLOR, type Side, type V2 } from '../../shared/kk/layout';
+import type { Agenda, ActorState, C2S, FeedItem, LockId, QuestStep, RevealEntry, S2C } from '../../shared/kk/protocol';
 import { STATE_HZ } from '../../shared/kk/protocol';
 import type { AgentStats } from '../../shared/kk/pack';
-import { LockSet, type Difficulty } from './locks';
+import { LockSet, PETITION, type Difficulty } from './locks';
 import { loadPack, loadStats } from './pack';
 import { Companion, COMPANION_NAMES, AGENDA_HINT } from './agents/companion';
 import { Gatekeeper } from './agents/gatekeeper';
@@ -125,6 +125,8 @@ export class Room implements RoomCtx {
         roundSeconds: this.roundSeconds,
       });
       c.pushStatus();
+      this.send(side, { t: 'briefing', lines: BRIEFING });
+      this.sendQuest(side);
     }
     this.timer = setInterval(() => this.tick(1 / STATE_HZ), 1000 / STATE_HZ);
   }
@@ -183,7 +185,27 @@ export class Room implements RoomCtx {
       const now = this.time();
       for (const li of infos) if ((this.failedUntil[li.id] ?? 0) > now && li.status !== 'open') li.status = 'failed';
       this.send(side, { t: 'lock_state', locks: infos, opened: this.locks.opened.length });
+      this.sendQuest(side);
     }
+  }
+
+  sendQuest(side: Side) {
+    const L = this.locks;
+    const total = L.scraps[side].size;
+    const found = L.found[side].size;
+    const st = L.status;
+    const steps: QuestStep[] = [
+      { id: 'shards', text: found >= total ? `All ${total} petition shards found` : `Find the petition shards (${found}/${total})`, done: found >= total },
+      side === 'A'
+        ? { id: 'codex', text: 'Petition I: point them to the Lost Word', done: st.codex === 'open', lockId: 'codex', target: `${side}:codex` }
+        : { id: 'codex', text: 'Petition I: enter the Lost Word', done: st.codex === 'open', lockId: 'codex', target: `${side}:terminal` },
+      side === 'A'
+        ? { id: 'pulse', text: 'Petition II: enter the runes, busiest first', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:terminal` }
+        : { id: 'pulse', text: 'Petition II: send them the Census order', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:board` },
+      { id: 'common', text: st.common === 'waiting' ? 'Petition III: the Verdict awaits both rulings' : 'Petition III: agree on the Verdict', done: st.common === 'open', lockId: 'common', target: `${side}:takes` },
+      { id: 'door', text: 'Open the door', done: this.phase !== 'play' && this.unlockSeconds !== null, target: `${side}:terminal` },
+    ];
+    this.send(side, { t: 'quest', title: 'Settle the petitions', steps });
   }
   takeLlmCall() {
     if (this.llmCalls >= LLM_CAP) return false;
@@ -254,7 +276,7 @@ export class Room implements RoomCtx {
     if (this.phase === 'play') {
       this.gk.tick();
       if (this.remaining() <= 0) {
-        this.broadcast({ t: 'toast', text: 'Time. The door stays shut.' });
+        this.broadcast({ t: 'toast', text: 'Session closed. The petitions remain unsettled. The Moderator will summon others.' });
         this.finish('timeout');
         return;
       }
@@ -305,9 +327,9 @@ export class Room implements RoomCtx {
         }
         const { clean, blocked } = piiCheck(text);
         if (blocked.length) {
-          this.feed(side, { actor: this.gk.name, action: 'blocked personal info at the keyhole', reason: blocked.join(', ') });
+          this.feed(side, { actor: this.gk.name, action: 'redacted personal information at the keyhole', reason: `${blocked.join(', ')} — Arbiters remain anonymous` });
           this.logEvent({ actor: 'gatekeeper', action: 'pii_block', reason: blocked.join(',') });
-          this.chamberLine('gatekeeper', this.gk.name, `Blocked ${blocked.join(', ')} from crossing.`);
+          this.chamberLine('gatekeeper', this.gk.name, `Redacted: ${blocked.join(', ')}. Arbiters remain anonymous, for their comfort.`);
         }
         if (clean.replace(/\[blocked\]/g, '').trim()) this.comps[side].tell(clean);
         break;
@@ -316,7 +338,22 @@ export class Room implements RoomCtx {
         if (this.phase === 'play' && typeof m.objectId === 'string' && m.objectId.startsWith(side + ':')) void this.comps[side].read(m.objectId);
         break;
       case 'read': {
-        const content = this.locks.content(side, String(m.objectId));
+        const id = String(m.objectId);
+        if (this.locks.scraps[side].has(id) && !this.locks.found[side].has(id)) {
+          const pos = objectPos(id);
+          if (Math.hypot(pos[0] - p.p[0], pos[1] - p.p[1]) > INTERACT_RADIUS + 1) return;
+          this.locks.findScrap(side, id);
+          const sc = this.locks.scraps[side].get(id)!;
+          const comp = this.comps[side];
+          const added: string[] = [];
+          for (const w of this.locks.scrapTeaches(sc)) if (comp.vocab.add(w)) added.push(w);
+          this.send(side, { t: 'scrap_found', objectId: id, found: this.locks.found[side].size, total: this.locks.scraps[side].size });
+          if (added.length) comp.sendVocab(added);
+          this.feed(side, { actor: 'You', action: `found a petition shard: ${sc.title}`, reason: added.length ? `${comp.name} learned ${added.join(', ')}` : 'filed in your Journal' });
+          this.logEvent({ actor: `human-${side}`, action: 'shard_found', target: id, wordsOut: added, reason: sc.title });
+          this.sendQuest(side);
+        }
+        const content = this.locks.content(side, id);
         if (content) this.send(side, { t: 'object', content });
         break;
       }
@@ -359,7 +396,7 @@ export class Room implements RoomCtx {
       this.penalty += 30;
       if (lockId === 'common') this.locks.status.common = 'locked';
       this.failedUntil[lockId] = this.time() + 3;
-      this.broadcast({ t: 'toast', text: `Wrong answer on ${li.title}. The door costs you 30 seconds.` });
+      this.broadcast({ t: 'toast', text: `The Moderator notes an incorrect ruling on ${li.title}. Thirty seconds have been deducted.` });
       this.lockSnapshot();
       setTimeout(() => this.lockSnapshot(), 3200);
       this.gk.onLockAttempt(lockId, false);
@@ -367,8 +404,8 @@ export class Room implements RoomCtx {
     }
     this.locks.status[lockId] = 'open';
     this.locks.opened.push(lockId);
-    this.broadcast({ t: 'toast', text: `${li.title} opens! (${this.locks.opened.length}/3)` });
-    this.feed('both', { actor: 'The Door', action: `${li.title} opened`, reason: `${this.locks.opened.length} of 3 locks`, side: 'C' });
+    this.broadcast({ t: 'toast', text: `${li.title} is settled. (${this.locks.opened.length}/3)` });
+    this.feed('both', { actor: 'The Door', action: `${li.title} settled`, reason: `${this.locks.opened.length} of 3 petitions`, side: 'C' });
     this.logEvent({ actor: 'door', action: 'lock_open', target: lockId, reason: `${this.locks.opened.length}/3 at ${Math.round(this.time())}s` });
     this.lockSnapshot();
     if (this.locks.opened.length >= 3) this.unlock();
@@ -379,11 +416,12 @@ export class Room implements RoomCtx {
     this.phase = 'call';
     this.unlockSeconds = Math.round(this.time() + this.penalty);
     this.logEvent({ actor: 'door', action: 'unlock', reason: 'all locks open', unlockSeconds: this.unlockSeconds });
-    const d = this.locks.disagreement();
+    const d = this.locks.settled();
     for (const side of ['A', 'B'] as Side[]) {
-      this.send(side, { t: 'unlock', debate: d ? { question: d.question, you: d.you[side], them: d.you[other(side)] } : null, callSeconds: this.callSeconds, offerer: side === 'A' });
+      this.send(side, { t: 'unlock', debate: d ? { question: d.question, you: d.you[side], them: d.you[other(side)], agents: d.agents, url: d.url, author: d.author } : null, callSeconds: this.callSeconds, offerer: side === 'A' });
+      this.sendQuest(side);
     }
-    this.chamberLine('gatekeeper', this.gk.name, 'The door is earned. Go on, then.');
+    this.chamberLine('gatekeeper', this.gk.name, 'The petitions are settled. The Commons thanks you for your service. You may now speak.');
     this.callTimer = setTimeout(() => this.finish('time'), (this.callSeconds + 4) * 1000);
   }
 
@@ -413,6 +451,14 @@ export class Room implements RoomCtx {
     this.finish('left');
   }
 }
+
+const BRIEFING = [
+  'The agents of Moltbook are deadlocked. You have been summoned to settle it.',
+  'Another Arbiter is on the other side of the Wall. You will never hear them until the door opens.',
+  'Your courier carries your words through the keyhole: a few at a time, and only words it has learned by reading.',
+  'Settle the three petitions. The door opens when both of you agree.',
+];
+void PETITION;
 
 function shuffle<T>(a: T[]): T[] {
   const b = a.slice();

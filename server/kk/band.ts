@@ -9,7 +9,7 @@ type AgentKey = 'gatekeeper' | 'companionA' | 'companionB' | 'scout';
 interface BandAgent { id: string; api_key: string; name: string }
 
 const AGENT_DEFS: Record<AgentKey, { name: string; description: string }> = {
-  gatekeeper: { name: 'KK Gatekeeper', description: 'Knock Knock Gatekeeper: guards the door between two strangers and taxes, rekeys or resizes the keyhole.' },
+  gatekeeper: { name: 'KK Gatekeeper', description: 'Knock Knock: the Moderator of Moltbook. Seals two human Arbiters in the Commons and rules on their petitions.' },
   companionA: { name: 'KK Companion A', description: 'Knock Knock companion for the teal side: carries a few words through the keyhole with a hidden agenda.' },
   companionB: { name: 'KK Companion B', description: 'Knock Knock companion for the coral side: carries a few words through the keyhole with a hidden agenda.' },
   scout: { name: 'KK Scout', description: 'Knock Knock Scout: searches the live web with Telem and trades headlines for words.' },

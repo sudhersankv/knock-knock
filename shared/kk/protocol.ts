@@ -25,8 +25,9 @@ export interface ActorState {
 }
 
 export interface ObjInfo {
-  id: string; // "A:t3"
-  kind: 'thread' | 'codex' | 'legend' | 'pulse' | 'takes' | 'terminal';
+  id: string; // "A:t3", scraps: "A:s2"
+  /** 'scrap' = hidden treasure-hunt fragment (petition shard). Client renders a faint glint until found; label hidden until found. */
+  kind: 'thread' | 'codex' | 'legend' | 'pulse' | 'takes' | 'terminal' | 'scrap';
   label: string; // short floating label
   pos: V2;
 }
@@ -54,7 +55,19 @@ export type ObjContent =
   | { kind: 'legend'; id: string; runes: { glyph: string; submolt: string }[] }
   | { kind: 'pulse'; id: string; snapshotAt: string; bars: { submolt: string; activity: number }[] }
   | { kind: 'takes'; id: string; takes: { id: string; glyph: string; question: string }[] }
-  | { kind: 'terminal'; id: string };
+  | { kind: 'terminal'; id: string }
+  /** A found petition shard. `fragment` is shown in the Journal; `teaches` lists words the companion learns from it. */
+  | { kind: 'scrap'; id: string; title: string; fragment: string; from: string; teaches: string[]; lockId?: LockId };
+
+/** Quest tracker: the server tells each side what to do next (Zelda-style objective list). */
+export interface QuestStep {
+  id: string;
+  text: string; // imperative, short: "Find the 3 petition shards"
+  done: boolean;
+  lockId?: LockId;
+  /** Optional world target for an objective marker ("A:codex"). */
+  target?: string;
+}
 
 // ---- client -> server ----
 export type C2S =
@@ -115,10 +128,20 @@ export type S2C =
   | { t: 'chamber'; busy: boolean; talkers: string[] }
   | { t: 'lock_state'; locks: LockInfo[]; opened: number }
   | { t: 'world_event'; kind: 'rekey' | 'budget' | 'mercy' | 'leak'; lockId?: LockId; budget?: number; reason: string }
-  | { t: 'unlock'; debate: { question: string; you: number; them: number } | null; callSeconds: number; offerer: boolean }
+  | {
+      t: 'unlock';
+      /** agents = how many agent replies the real thread had (the deadlock you two settled); url = Moltbook thread. */
+      debate: { question: string; you: number; them: number; agents?: number; url?: string; author?: string } | null;
+      callSeconds: number;
+      offerer: boolean;
+    }
   | { t: 'rtc'; data: unknown }
   | { t: 'call_end'; reason: string }
   | { t: 'reveal'; timeline: RevealEntry[]; chamber: { t: number; from: string; text: string }[]; agendas: Record<Side, Agenda>; worldEvents: FeedItem[]; unlockSeconds: number | null }
+  | { t: 'quest'; title: string; steps: QuestStep[] }
+  /** Narrative intro shown once at drop-in (the Moderator's summons). */
+  | { t: 'briefing'; lines: string[] }
+  | { t: 'scrap_found'; objectId: string; found: number; total: number }
   | { t: 'partner_left' }
   | { t: 'toast'; text: string };
 

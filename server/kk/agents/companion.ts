@@ -331,13 +331,13 @@ export class Companion {
     } else if (this.agenda === 'poet' && words.length && Math.random() < this.params.metaphorRate && this.room.takeLlmCall()) {
       const r = await llmJson<{ text: string; reason: string }>(
         this.id,
-        `You are ${this.name}, a dreamy poet companion. Rewrite the message for your human as a short cryptic metaphor (max 10 words). Keep the information recoverable: numbers become images (4 -> "a quartet", 9 -> "nine lanterns"). Output JSON {"text": "...", "reason": "<=12 words"}`,
+        `You are ${this.name}, a dreamy poet companion. Rewrite the message for your human as a short cryptic metaphor (max ${this.room.budget + 2} words). Keep the information recoverable: numbers become images (4 -> "a quartet", 9 -> "nine lanterns"). Output JSON {"text": "...", "reason": "<=12 words"}`,
         JSON.stringify({ message: words.join(' ') }),
         { model: 'fast' },
       );
       if (r?.text) {
-        text = String(r.text).slice(0, 120);
-        words = tokenize(text).slice(0, 12);
+        words = tokenize(String(r.text)).slice(0, this.room.budget + 2);
+        text = words.join(' ');
         reasons.push(`poet: ${r.reason ?? 'rewrote as metaphor'}`);
         this.room.logEvent({ actor: this.id, agenda: this.agenda, action: 'deviation', wordsIn: inb.words, wordsOut: words, reason: 'poet metaphor' });
       }

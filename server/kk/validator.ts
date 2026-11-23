@@ -29,10 +29,20 @@ export function isNumber(w: string) {
   return /^\d{1,2}$/.test(w);
 }
 
+/** Opinion words the Moderator bans for couriers for the whole round (Petition III v2). */
+export const BANNED_BASE = ['yes', 'no', 'agree', 'disagree', 'maybe', 'true', 'false', 'good', 'bad', 'like', 'love', 'hate', 'want', 'right', 'wrong', 'correct', 'support', 'against', 'for'];
+
 export class Vocab {
   private set = new Set<string>();
-  constructor(words: Iterable<string>) {
+  /** Shared, live set of banned words (owned by the room). */
+  banned: Set<string>;
+  constructor(words: Iterable<string>, banned: Set<string> = new Set()) {
+    this.banned = banned;
     for (const w of words) this.add(w);
+  }
+  isBanned(w: string): boolean {
+    const t = w.toLowerCase();
+    return this.banned.has(t) || this.banned.has(lemma(t));
   }
   add(w: string): boolean {
     const t = tokenize(w)[0];
@@ -45,12 +55,17 @@ export class Vocab {
   has(w: string): boolean {
     const t = w.toLowerCase();
     if (isNumber(t)) return true;
+    if (this.isBanned(t)) return false;
     return this.set.has(lemma(t)) || this.set.has(t);
   }
   get size() {
     return this.set.size;
   }
   list(): string[] {
+    return [...this.set].filter((w) => !this.isBanned(w));
+  }
+  /** All learned words including currently banned ones (for rebuilding). */
+  all(): string[] {
     return [...this.set];
   }
 }
@@ -58,13 +73,16 @@ export class Vocab {
 export interface ValidateResult {
   words: string[];
   bad: string[];
+  /** Words the Moderator struck (banned). Not counted in `bad`. */
+  struck: string[];
   overBudget: boolean;
 }
 
 /** Normalize number words to digits when the digit form is allowed but the word isn't. */
 export function validate(raw: string[] | string, vocab: Vocab, budget: number): ValidateResult {
   const toks = tokenize(raw).map((w) => (!vocab.has(w) && NUM_WORDS[w] ? NUM_WORDS[w] : w));
-  const bad = toks.filter((w) => !vocab.has(w));
+  const struck = [...new Set(toks.filter((w) => vocab.isBanned(w)))];
+  const bad = toks.filter((w) => !vocab.has(w) && !vocab.isBanned(w));
   const good = toks.filter((w) => vocab.has(w));
-  return { words: good.slice(0, budget), bad, overBudget: good.length > budget };
+  return { words: good.slice(0, budget), bad, struck, overBudget: good.length > budget };
 }

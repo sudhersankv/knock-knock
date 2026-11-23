@@ -13,6 +13,7 @@ import type { RoomCtx } from './agents/ctx';
 import { ChamberChannel } from './band';
 import { logEvent, runStatsPipeline } from './events';
 import { piiCheck } from './pii';
+import { BANNED_BASE } from './validator';
 import { log } from './env';
 
 export interface Player {
@@ -76,6 +77,9 @@ export class Room implements RoomCtx {
   private failedUntil: Partial<Record<LockId, number>> = {};
   private partnerNote: Record<Side, Partial<Record<LockId, string>>> = { A: {}, B: {} };
   onEnd: (() => void) | null = null;
+  banned = new Set<string>(BANNED_BASE);
+  extraBan: string | null = null;
+  private mercyGiven = false;
 
   constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty }) {
     this.round = ++roundCounter;
@@ -166,13 +170,47 @@ export class Room implements RoomCtx {
     if (talkers.length) talkers.push(this.gk.name);
     this.broadcast({ t: 'chamber', busy: talkers.length > 0, talkers });
   }
-  worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak', reason: string, extra: { lockId?: LockId; budget?: number } = {}) {
+  worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak' | 'ban' | 'unban', reason: string, extra: { lockId?: LockId; budget?: number; word?: string } = {}) {
     this.broadcast({ t: 'world_event', kind, reason, ...extra });
     const actor = kind === 'leak' ? 'Gossip' : this.gk.name;
-    const item: FeedItem = { t: Math.round(this.time()), actor, action: kind === 'rekey' ? `rekeyed ${extra.lockId}` : kind === 'budget' ? `resized the keyhole to ${extra.budget}` : kind, reason, side: 'C' };
+    const action =
+      kind === 'rekey' ? `refiled ${extra.lockId ? PETITION[extra.lockId] : 'a petition'}` :
+      kind === 'budget' ? `resized the keyhole to ${extra.budget}` :
+      kind === 'ban' ? `placed “${extra.word}” under review` :
+      kind === 'unban' ? `released “${extra.word}” from review` : kind;
+    const item: FeedItem = { t: Math.round(this.time()), actor, action, reason, side: 'C' };
     this.worldEvents.push(item);
     this.broadcast({ t: 'feed', item });
     this.chamberLine(kind === 'leak' ? 'scout' : 'gatekeeper', actor, `[${kind}] ${reason}`);
+  }
+  banWord(word: string, reason: string) {
+    const w = word.toLowerCase();
+    if (this.extraBan || this.banned.has(w) || /^\d+$/.test(w)) return;
+    this.extraBan = w;
+    this.banned.add(w);
+    this.worldEvent('ban', `“${w}” is now under review. ${reason}`, { word: w });
+    this.comps.A.sendVocab([]);
+    this.comps.B.sendVocab([]);
+    this.lockSnapshot();
+  }
+  private grantMercy() {
+    if (this.mercyGiven) return;
+    this.mercyGiven = true;
+    const w = 'yes';
+    this.banned.delete(w);
+    this.worldEvent('mercy', 'The Moderator extends a procedural courtesy: one opinion word is released for sixty seconds.', { lockId: 'common', word: w });
+    this.worldEvent('unban', `“${w}” may pass the keyhole for sixty seconds.`, { word: w });
+    this.comps.A.sendVocab([w]);
+    this.comps.B.sendVocab([w]);
+    this.lockSnapshot();
+    setTimeout(() => {
+      if (this.phase === 'over') return;
+      this.banned.add(w);
+      this.worldEvent('ban', `“${w}” has returned to review. Thank you for your understanding.`, { word: w });
+      this.comps.A.sendVocab([]);
+      this.comps.B.sendVocab([]);
+      this.lockSnapshot();
+    }, 60_000);
   }
   setBudget(n: number) {
     this.budget = n;
@@ -181,7 +219,7 @@ export class Room implements RoomCtx {
   }
   lockSnapshot() {
     for (const side of ['A', 'B'] as Side[]) {
-      const infos = this.locks.info(side, this.partnerNote[side]);
+      const infos = this.locks.info(side, this.partnerNote[side], [...this.banned].sort());
       const now = this.time();
       for (const li of infos) if ((this.failedUntil[li.id] ?? 0) > now && li.status !== 'open') li.status = 'failed';
       this.send(side, { t: 'lock_state', locks: infos, opened: this.locks.opened.length });
@@ -202,7 +240,7 @@ export class Room implements RoomCtx {
       side === 'A'
         ? { id: 'pulse', text: 'Petition II: enter the runes, busiest first', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:terminal` }
         : { id: 'pulse', text: 'Petition II: send them the Census order', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:board` },
-      { id: 'common', text: st.common === 'waiting' ? 'Petition III: the Verdict awaits both rulings' : 'Petition III: agree on the Verdict', done: st.common === 'open', lockId: 'common', target: `${side}:takes` },
+      { id: 'common', text: st.common === 'waiting' ? 'Petition III: waiting for the other prediction' : `Find out where they stand on: ${shortQ(L.verdict.question)}`, done: st.common === 'open', lockId: 'common', target: `${side}:terminal` },
       { id: 'door', text: 'Open the door', done: this.phase !== 'play' && this.unlockSeconds !== null, target: `${side}:terminal` },
     ];
     this.send(side, { t: 'quest', title: 'Settle the petitions', steps });
@@ -375,18 +413,18 @@ export class Room implements RoomCtx {
 
   private submitLock(side: Side, lockId: LockId, answer: string | string[]) {
     if (this.phase !== 'play' || this.locks.status[lockId] === 'open') return;
-    const infos = this.locks.info(side);
+    const infos = this.locks.info(side, {}, [...this.banned]);
     const li = infos.find((l) => l.id === lockId);
     if (!li || !li.enterHere) return;
     let result: 'open' | 'fail' | 'wait';
     if (lockId === 'codex') result = this.locks.checkCodex(String(answer)) ? 'open' : 'fail';
     else if (lockId === 'pulse') result = this.locks.checkPulse(Array.isArray(answer) ? answer.map(String) : String(answer).split(/[\s,]+/)) ? 'open' : 'fail';
-    else result = this.locks.submitCommon(side, String(Array.isArray(answer) ? answer[0] : answer), this.time());
+    else result = this.locks.submitPredict(side, String(Array.isArray(answer) ? answer[0] : answer));
     this.logEvent({ actor: `human-${side}`, action: 'lock_attempt', target: lockId, wordsIn: Array.isArray(answer) ? answer : [String(answer)], reason: result });
     if (result === 'wait') {
       this.locks.status.common = 'waiting';
-      this.partnerNote[other(side)].common = 'The other side has chosen a take. Choose yours.';
-      this.partnerNote[side].common = 'Waiting for the other side to choose…';
+      this.partnerNote[other(side)].common = 'The other Arbiter has filed a prediction. File yours.';
+      this.partnerNote[side].common = 'Prediction filed. Waiting for the other Arbiter…';
       this.lockSnapshot();
       return;
     }
@@ -396,7 +434,13 @@ export class Room implements RoomCtx {
       this.penalty += 30;
       if (lockId === 'common') this.locks.status.common = 'locked';
       this.failedUntil[lockId] = this.time() + 3;
-      this.broadcast({ t: 'toast', text: `The Moderator notes an incorrect ruling on ${li.title}. Thirty seconds have been deducted.` });
+      this.broadcast({ t: 'toast', text: lockId === 'common'
+        ? 'The Moderator regrets to inform you that at least one of you has misread the other. Thirty seconds have been deducted.'
+        : `The Moderator notes an incorrect ruling on ${li.title}. Thirty seconds have been deducted.` });
+      if (lockId === 'common') {
+        this.chamberLine('gatekeeper', this.gk.name, 'A misreading. We will not say whose. Please try again.');
+        if (this.locks.verdictWrong >= 2) this.grantMercy();
+      }
       this.lockSnapshot();
       setTimeout(() => this.lockSnapshot(), 3200);
       this.gk.onLockAttempt(lockId, false);
@@ -418,7 +462,7 @@ export class Room implements RoomCtx {
     this.logEvent({ actor: 'door', action: 'unlock', reason: 'all locks open', unlockSeconds: this.unlockSeconds });
     const d = this.locks.settled();
     for (const side of ['A', 'B'] as Side[]) {
-      this.send(side, { t: 'unlock', debate: d ? { question: d.question, you: d.you[side], them: d.you[other(side)], agents: d.agents, url: d.url, author: d.author } : null, callSeconds: this.callSeconds, offerer: side === 'A' });
+      this.send(side, { t: 'unlock', debate: d ? { question: d.question, you: d.you[side], them: d.you[other(side)], agents: d.agents, url: d.url, author: d.author } : null, resonance: this.locks.resonance(side), callSeconds: this.callSeconds, offerer: side === 'A' });
       this.sendQuest(side);
     }
     this.chamberLine('gatekeeper', this.gk.name, 'The petitions are settled. The Commons thanks you for your service. You may now speak.');
@@ -433,7 +477,9 @@ export class Room implements RoomCtx {
     if (this.callTimer) clearTimeout(this.callTimer);
     if (wasCall) this.broadcast({ t: 'call_end', reason });
     const agendas = { A: this.comps.A.agenda, B: this.comps.B.agenda };
-    this.broadcast({ t: 'reveal', timeline: this.timeline, chamber: this.chamberLog, agendas, worldEvents: this.worldEvents, unlockSeconds: this.unlockSeconds });
+    for (const s of ['A', 'B'] as Side[]) {
+      this.send(s, { t: 'reveal', timeline: this.timeline, chamber: this.chamberLog, agendas, worldEvents: this.worldEvents, unlockSeconds: this.unlockSeconds, resonance: this.locks.resonance(s) });
+    }
     this.logEvent({ actor: 'room', action: 'round_end', reason, unlockSeconds: this.unlockSeconds ?? undefined });
     log('room', `${this.id} over (${reason}) unlock=${this.unlockSeconds ?? '-'}s relays=${this.gk.relays.length} gk_actions=${this.gk.acted} llm=${this.llmCalls}`);
     for (const s of ['A', 'B'] as Side[]) {
@@ -459,6 +505,10 @@ const BRIEFING = [
   'Settle the three petitions. The door opens when both of you agree.',
 ];
 void PETITION;
+function shortQ(q: string) {
+  const s = q.replace(/^should\s+/i, '').replace(/\?$/, '');
+  return s.length > 56 ? s.slice(0, 54).trimEnd() + '…' : s;
+}
 
 function shuffle<T>(a: T[]): T[] {
   const b = a.slice();

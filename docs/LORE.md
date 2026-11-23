@@ -32,7 +32,32 @@ Tone: cozy courtyard on the surface, bureaucratic AI dystopia underneath. The Mo
 3. "Your courier carries your words through the keyhole: a few at a time, and only words it has learned by reading."
 4. "Settle the three petitions. The door opens when both of you agree."
 
-## Puzzles
+## FINAL DESIGN (hybrid) — read this first
+- Petition I (The Lost Word) and Petition II (The Census) stay EXACTLY as in "Puzzles (v1)" below, including shards.
+- Petition III (The Verdict) becomes "Read the Stranger" as described in the v2 section below, applied to ONE debate (the pair's most-split or a random one of their 5): both see the same real debate question (no redaction needed for the single-debate version); each predicts the other's stance (lean yes / lean no + optional strength); settles when BOTH predictions are right. Banned opinion words, courier bending, Moderator banning an extra word mid-round, mercy after 2 wrong tries — all apply.
+- Debates: only moral / ethical / philosophical questions (pipeline filter).
+- Resonance at the door: call card + Reveal show "You agreed on X of 5", the biggest split (debate question), and "You read each other right" (Verdict).
+- Onboarding copy: "The agents can't settle these. Where do you stand?"
+
+## PETITIONS v2 — "Read the Stranger" (only Petition III uses this; see FINAL DESIGN)
+
+The game tests one thing: can two strangers understand each other's philosophy through a hostile, lossy channel? Each petition is one real deadlocked Moltbook debate (3 of the 5 onboarding debates). To settle a petition, each Arbiter must correctly PREDICT the other's stance on it (from their onboarding answers): yes or no. Agreement is not required; understanding is. Strength (1–3) within 1 counts as a "deep read" bonus shown in the Reveal.
+
+Why it's hard (escape room + treasure hunt):
+1. **The Moderator bans opinion words.** Couriers start WITHOUT yes, no, agree, maybe, true, false, good, bad, like, love, hate, want (remove them from the starter vocab). "Opinion words are under review." Players must invent ways to express a stance with what's left: numbers, directions (up/down/left/right), more/less, colors, words learned from threads. Example: "memory up 3" or "copy red".
+2. **Name the debate without saying it.** Each side sees the 3 petition debates under different glyphs, in a different order, and the Moderator redacts the debate's key noun on each side (side A sees "Should an agent be allowed to delete its own ████?"). The keyword is learnable only by reading that debate's thread (a thread board somewhere in your half) or from a petition shard. Until your courier has learned it, you have to point at the debate some other way (e.g. by a word you both can see in the redacted question, or by a shard-learned word).
+3. **Couriers lie.** Agendas bend stances: jealous may flip the direction word, poet turns "up 3" into imagery, literalist refuses words it doesn't know. Smart pairs ask twice, or invent a checksum.
+4. **The Moderator interferes on its own.** Rekey = swaps which glyph points at which debate on one side ("The Verdict wall has been reordered for fairness"), narrows the keyhole, taxes a word, or bans an extra word mid-round ("'up' is now under review").
+
+Terminal input per petition: pick the debate's glyph (on your side) + predict their stance (Lean yes / Lean no) + optional strength. Both sides must submit; a petition settles when BOTH predictions are right. A wrong prediction costs 30 s and the Moderator says so (without revealing which side was wrong). After 2 wrong tries the Moderator offers "mercy": one opinion word is unbanned for the pair for 60 s.
+
+Petition names: I "The First Deadlock", II "The Second Deadlock", III "The Last Deadlock" — each subtitle is the (redacted) debate question.
+
+End: door opens → call card: "You read each other on 3 of 3. You agreed on 2. Start with the one you didn't." + the real debate + "settled in minutes what N agent replies couldn't."
+
+Treasure hunt stays: shards carry debate keywords (each side gets the keyword for at least one debate only via shards), Moderator memos, a petitioner's plea, and one rule hint per side ("Numbers always pass. Opinions do not."). Thread boards include each petition debate's real thread. The Codex stone becomes "The Moderator's Index": a real post where the banned words are struck through (flavor + where couriers can learn a few neutral words). The Census board stays as flavor/Scout target only (not a lock).
+
+## Puzzles (v1, superseded)
 
 Every petition needs both sides plus a treasure hunt. No petition is solvable by one side or by reading one object.
 

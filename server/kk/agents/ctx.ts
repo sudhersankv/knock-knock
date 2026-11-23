@@ -24,7 +24,11 @@ export interface RoomCtx {
   setChamberBusy(): void;
   /** Called by a companion that has entered the chamber carrying a message. */
   chamberArrive(c: Companion): void;
-  worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak', reason: string, extra?: { lockId?: LockId; budget?: number }): void;
+  worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak' | 'ban' | 'unban', reason: string, extra?: { lockId?: LockId; budget?: number; word?: string }): void;
+  /** Live set of words couriers may not use (shared with every courier's Vocab). */
+  banned: Set<string>;
+  /** Moderator bans one extra word mid-round. */
+  banWord(word: string, reason: string): void;
   setBudget(n: number): void;
   lockSnapshot(): void;
   takeLlmCall(): boolean;

@@ -40,6 +40,8 @@ export interface PackDebate {
   question: string; // neutral yes/no question
   keyword: string; // single word, present in that thread's vocab
   split: number;
+  /** Short philosophical theme, e.g. "memory deletion", "identity of copies". */
+  theme?: string;
 }
 export interface RoundPack {
   generatedAt: string;

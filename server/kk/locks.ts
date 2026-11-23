@@ -57,13 +57,81 @@ export class LockSet {
   scraps: Record<Side, Map<string, Scrap>> = { A: new Map(), B: new Map() };
   found: Record<Side, Set<string>> = { A: new Set(), B: new Set() };
   settledDebate: string | null = null;
+  /** Petition III v2 (Read the Stranger): the single debate both sides must read each other on. */
+  verdict!: PackDebate;
+  predictions: Partial<Record<Side, { lean: 1 | -1; strength: number }>> = {};
+  verdictWrong = 0;
+  deepRead = false;
 
   constructor(public pack: RoundPack, public difficulty: Difficulty, public takes: Record<Side, Takes>) {
     this.pickCodex();
     this.pickPulse();
     this.shuffleTakes();
+    this.pickVerdict();
     this.placeThreads();
     this.placeScraps();
+  }
+
+  /** The pair's most split debate (|sA - sB|), ties random. */
+  pickVerdict() {
+    const ds = shuffle(this.pack.debates.slice(0, 5));
+    let best = ds[0];
+    let gap = -1;
+    for (const d of ds) {
+      const g = Math.abs((this.takes.A[d.threadId] ?? 0) - (this.takes.B[d.threadId] ?? 0));
+      if (g > gap) {
+        gap = g;
+        best = d;
+      }
+    }
+    this.verdict = best;
+  }
+  /** Stance of a side on the verdict debate; 0/unanswered counts as lean yes, strength 1. */
+  stance(side: Side): { lean: 1 | -1; strength: number } {
+    const v = this.takes[side][this.verdict.threadId] ?? 0;
+    if (!v) return { lean: 1, strength: 1 };
+    return { lean: v > 0 ? 1 : -1, strength: Math.min(3, Math.abs(v)) };
+  }
+  /** Petition III: `yes:2` = "the OTHER Arbiter leans yes, strength 2". */
+  submitPredict(side: Side, answer: string): 'wait' | 'open' | 'fail' {
+    const m = /^(yes|no)(?::([123]))?$/i.exec(String(answer).trim());
+    if (!m) return 'fail';
+    this.predictions[side] = { lean: m[1].toLowerCase() === 'yes' ? 1 : -1, strength: Number(m[2] ?? 2) };
+    const pA = this.predictions.A, pB = this.predictions.B;
+    if (!pA || !pB) return 'wait';
+    const sA = this.stance('A'), sB = this.stance('B');
+    const ok = pA.lean === sB.lean && pB.lean === sA.lean;
+    this.predictions = {};
+    if (!ok) {
+      this.verdictWrong++;
+      return 'fail';
+    }
+    this.deepRead = Math.abs(pA.strength - sB.strength) <= 1 && Math.abs(pB.strength - sA.strength) <= 1;
+    this.settledDebate = this.verdict.threadId;
+    return 'open';
+  }
+  /** Ideology match across the 5 onboarding debates, relative to `side`. */
+  resonance(side: Side) {
+    const o: Side = side === 'A' ? 'B' : 'A';
+    const ds = this.pack.debates.slice(0, 5);
+    const sign = (x: number) => (x > 0 ? 1 : x < 0 ? -1 : 0);
+    const agreed = ds.filter((d) => sign(this.takes.A[d.threadId] ?? 0) === sign(this.takes.B[d.threadId] ?? 0)).length;
+    let split: PackDebate | null = null;
+    let gap = -1;
+    for (const d of ds) {
+      const g = Math.abs((this.takes.A[d.threadId] ?? 0) - (this.takes.B[d.threadId] ?? 0));
+      if (g > gap) {
+        gap = g;
+        split = d;
+      }
+    }
+    return {
+      agreed,
+      total: ds.length,
+      biggestSplit: split ? { question: split.question, you: this.takes[side][split.threadId] ?? 0, them: this.takes[o][split.threadId] ?? 0 } : null,
+      readRight: this.status.common === 'open',
+      deepRead: this.deepRead,
+    };
   }
 
   pickCodex(exclude?: string) {
@@ -137,7 +205,7 @@ export class LockSet {
       } else {
         list.push({ title: 'Courier rule', from: 'scratched on the keyhole frame', lockId: 'codex', text: 'Numbers always pass the keyhole.' });
       }
-      list.push({ title: 'On the Verdict', from: 'a Moderator transcript', lockId: 'common', text: 'The Moderator listens for single words. Name the debate by its heart.' });
+      list.push({ title: 'On the Verdict', from: 'a Moderator transcript', lockId: 'common', text: 'Opinions are under review. Numbers, directions and stories are not.' });
       list.push({ title: 'Moderator memo', from: 'The Moderator', text: memos[side === 'A' ? 0 : 1] });
       const t = debateThreads[side === 'A' ? 0 : Math.min(1, debateThreads.length - 1)] ?? this.pack.threads[0];
       list.push({ title: "A petitioner's plea", from: `u/${t.author}`, lockId: 'common', text: `“Settle it. ${t.title.slice(0, 90)}. The feed has not slept.” — u/${t.author}, m/${t.submolt}` });
@@ -212,7 +280,7 @@ export class LockSet {
   }
 
   // ---------- lock info ----------
-  info(side: Side, partnerNote: Partial<Record<LockId, string>> = {}): LockInfo[] {
+  info(side: Side, partnerNote: Partial<Record<LockId, string>> = {}, banned: string[] = []): LockInfo[] {
     const c = this.codex;
     const codex: LockInfo =
       side === 'A'
@@ -223,17 +291,21 @@ export class LockSet {
       side === 'A'
         ? { id: 'pulse', title: PETITION.pulse, prompt: `Enter these ${runes.length} runes in order of today's activity on Moltbook, busiest first. Your legend is eroded — find the missing pieces. Only the other Arbiter can read the Census.`, enterHere: true, input: 'runes', options: shuffle(runes).map((g) => ({ id: g, label: g, glyph: g })), pick: runes.length, status: this.status.pulse, partnerStatus: partnerNote.pulse }
         : { id: 'pulse', title: PETITION.pulse, prompt: `The other Arbiter holds ${runes.length} runes, one per district. They must enter them busiest first. You hold today's Census.`, enterHere: false, input: 'none', status: this.status.pulse, partnerStatus: partnerNote.pulse };
+    const vt = this.pack.threads.find((t) => t.id === this.verdict.threadId);
     const common: LockInfo = {
       id: 'common',
       title: PETITION.common,
-      prompt: 'Both Arbiters: rule on the debate you BOTH feel strongest about. The verdict is double-blind. Your symbols mean nothing on the other side of the Wall.',
+      prompt: 'Read the stranger. Predict where the OTHER Arbiter stands on this deadlock: lean yes or lean no, and how strongly. You do not have to agree — only understand. Opinion words are under review.',
       enterHere: true,
-      input: 'take',
-      options: this.takeOrder[side].map((t) => ({ id: t.id, label: t.debate.question, glyph: t.glyph })),
+      input: 'predict',
+      question: this.verdict.question,
+      questionUrl: vt?.url,
       status: this.status.common,
       partnerStatus: partnerNote.common,
     };
-    return [codex, pulse, common];
+    const out = [codex, pulse, common];
+    for (const l of out) l.banned = banned;
+    return out;
   }
 
   // ---------- answers ----------
@@ -276,7 +348,7 @@ export class LockSet {
   }
   /** The Verdict the pair settled (call card): question, stances, and the real thread behind it. */
   settled(): { question: string; you: Record<Side, number>; agents?: number; url?: string; author?: string } | null {
-    const d = this.pack.debates.find((x) => x.threadId === this.settledDebate);
+    const d = this.pack.debates.find((x) => x.threadId === (this.settledDebate ?? this.verdict?.threadId));
     if (!d) return this.disagreement();
     const t = this.pack.threads.find((x) => x.id === d.threadId);
     return { question: d.question, you: { A: this.takes.A[d.threadId] ?? 0, B: this.takes.B[d.threadId] ?? 0 }, agents: t?.comments, url: t?.url, author: t?.author };
@@ -311,7 +383,8 @@ export class LockSet {
     }
     this.shuffleTakes();
     this.commonPicks = {};
-    return 'Petition III was refiled: the Verdict symbols have been reshuffled';
+    this.predictions = {};
+    return 'Petition III was refiled: all pending predictions have been discarded';
   }
 
   /** Short hint for mercy / scout. */
@@ -320,6 +393,7 @@ export class LockSet {
     if (lock === 'pulse') return `The Census: m/${this.pulse.entries[0].submolt} is busiest today`;
     const acc = this.acceptedCommon();
     const d = this.pack.debates.find((x) => x.threadId === acc[0]);
-    return `The Verdict: think “${d?.keyword ?? 'memories'}”`;
+    void d;
+    return 'The Verdict: opinions are banned, directions are not. Try “up” for yes and a number for how much.';
   }
 }

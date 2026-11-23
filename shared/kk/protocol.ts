@@ -39,7 +39,13 @@ export interface LockInfo {
   prompt: string;
   /** True if this side's terminal enters the answer for this lock. */
   enterHere: boolean;
-  input: 'word' | 'runes' | 'take' | 'none';
+  /** 'predict' (Petition III v2): answer = `${'yes'|'no'}:${1|2|3}` — your prediction of the OTHER Arbiter's stance on `question`. */
+  input: 'word' | 'runes' | 'take' | 'predict' | 'none';
+  /** For 'predict': the debate question both sides see, plus its Moltbook thread url. */
+  question?: string;
+  questionUrl?: string;
+  /** Words the Moderator has banned for couriers this round (shown on the terminal + Journal). */
+  banned?: string[];
   /** For runes/take inputs: choices shown on this side (ids are side-specific symbols). */
   options?: { id: string; label: string; glyph?: string }[];
   /** For runes: how many to pick, in order. */
@@ -127,17 +133,35 @@ export type S2C =
   | { t: 'feed'; item: FeedItem }
   | { t: 'chamber'; busy: boolean; talkers: string[] }
   | { t: 'lock_state'; locks: LockInfo[]; opened: number }
-  | { t: 'world_event'; kind: 'rekey' | 'budget' | 'mercy' | 'leak'; lockId?: LockId; budget?: number; reason: string }
+  | { t: 'world_event'; kind: 'rekey' | 'budget' | 'mercy' | 'leak' | 'ban' | 'unban'; lockId?: LockId; budget?: number; word?: string; reason: string }
   | {
       t: 'unlock';
       /** agents = how many agent replies the real thread had (the deadlock you two settled); url = Moltbook thread. */
       debate: { question: string; you: number; them: number; agents?: number; url?: string; author?: string } | null;
+      /** Ideology match across all 5 onboarding debates (stances are signed -3..3). */
+      resonance?: {
+        agreed: number; // same sign
+        total: number;
+        biggestSplit: { question: string; you: number; them: number } | null;
+        /** Petition III: did each side predict the other correctly, and how close on strength. */
+        readRight: boolean;
+        deepRead: boolean;
+      };
       callSeconds: number;
       offerer: boolean;
     }
   | { t: 'rtc'; data: unknown }
   | { t: 'call_end'; reason: string }
-  | { t: 'reveal'; timeline: RevealEntry[]; chamber: { t: number; from: string; text: string }[]; agendas: Record<Side, Agenda>; worldEvents: FeedItem[]; unlockSeconds: number | null }
+  | {
+      t: 'reveal';
+      timeline: RevealEntry[];
+      chamber: { t: number; from: string; text: string }[];
+      agendas: Record<Side, Agenda>;
+      worldEvents: FeedItem[];
+      unlockSeconds: number | null;
+      /** Same shape as unlock.resonance (you/them relative to the recipient). */
+      resonance?: { agreed: number; total: number; biggestSplit: { question: string; you: number; them: number } | null; readRight: boolean; deepRead: boolean };
+    }
   | { t: 'quest'; title: string; steps: QuestStep[] }
   /** Narrative intro shown once at drop-in (the Moderator's summons). */
   | { t: 'briefing'; lines: string[] }

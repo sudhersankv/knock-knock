@@ -23,7 +23,7 @@ interface Bot {
   found: number;
   quest: string;
 }
-const shared: { passWord?: string; codexLines?: string[]; pulseOrder?: string[]; legend?: { glyph: string; submolt: string }[]; strongQ?: string } = {};
+const shared: { passWord?: string; codexLines?: string[]; pulseOrder?: string[]; legend?: { glyph: string; submolt: string }[]; strongQ?: string; takes: Record<string, Record<string, number>>; debates: { id: string; question: string }[] } = { takes: {}, debates: [] };
 let unlocked = false;
 let reveals = 0;
 const worldEvents: string[] = [];
@@ -43,7 +43,11 @@ function onMsg(b: Bot, name: string, m: S2C) {
       b.debates = m.debates;
       shared.strongQ = m.debates[0]?.question;
       const takes: Record<string, number> = {};
-      m.debates.forEach((d, i) => (takes[d.id] = i === 0 ? 3 : i % 2 ? 1 : -1));
+      // the two bots disagree on debate 0 (that becomes the Verdict) and partly agree elsewhere
+      const plan = name === 'BotA' ? [3, -2, 1, -1, 2] : [-3, 2, 1, 1, -2];
+      m.debates.forEach((d, i) => (takes[d.id] = plan[i] ?? 1));
+      shared.takes[name] = takes;
+      shared.debates = m.debates;
       b.send({ t: 'hello', codename: name, takes, interests: ['games', 'code', 'music'], matchCode: code, demo: true });
       break;
     }
@@ -110,7 +114,7 @@ function onMsg(b: Bot, name: string, m: S2C) {
       break;
     case 'unlock':
       unlocked = true;
-      console.log(ts(), name, `UNLOCK! debate card: ${JSON.stringify(m.debate)} call=${m.callSeconds}s offerer=${m.offerer}`);
+      console.log(ts(), name, `UNLOCK! debate card: ${JSON.stringify(m.debate)} resonance=${JSON.stringify(m.resonance)} call=${m.callSeconds}s offerer=${m.offerer}`);
       setTimeout(() => b.send({ t: 'hangup' }), 3000);
       break;
     case 'call_end':
@@ -118,7 +122,7 @@ function onMsg(b: Bot, name: string, m: S2C) {
       break;
     case 'reveal':
       reveals++;
-      console.log(ts(), name, `REVEAL unlockSeconds=${m.unlockSeconds} agendas=${JSON.stringify(m.agendas)}`);
+      console.log(ts(), name, `REVEAL unlockSeconds=${m.unlockSeconds} agendas=${JSON.stringify(m.agendas)} resonance=${JSON.stringify(m.resonance)}`);
       for (const e of m.timeline) console.log(`   ${e.from}: said "${e.said}" -> sent [${e.sentWords.join(' ')}] -> delivered [${e.deliveredWords.join(' ')}] (${e.agendas.join('/')}) ${e.reasons.join(' | ')}`);
       if (name === 'BotA') for (const c of m.chamber) console.log(`   chamber ${c.t}s ${c.from}: ${c.text}`);
       break;
@@ -184,11 +188,21 @@ async function main() {
   const order = shared.pulseOrder!.map((s) => shared.legend!.find((r) => r.submolt === s)!.glyph);
   sideA.send({ t: 'lock_submit', lockId: 'pulse', answer: order });
   await sleep(1500);
-  // common: both pick the strongly-shared debate
+  // Petition III (Read the Stranger): each side signals its own stance with direction + number, then predicts the other
+  const q = sideA.locks.find((l) => l.id === 'common')!;
+  console.log(ts(), 'VERDICT question:', q.question, '| banned:', (q.banned ?? []).join(','));
   for (const b of [sideA, sideB]) {
-    const li = b.locks.find((l) => l.id === 'common')!;
-    const opt = li.options!.find((o) => o.label === shared.strongQ)!;
-    b.send({ t: 'lock_submit', lockId: 'common', answer: opt.id });
+    const mine = stanceOf(b === A ? 'BotA' : 'BotB', q.question!);
+    b.send({ t: 'tell', text: `I lean yes, ${mine > 0 ? 'up' : 'down'} ${Math.abs(mine)}` });
+  }
+  await waitFor(() => sideA.deliveries.length >= 2 && sideB.deliveries.length >= 2, 45000);
+  console.log(ts(), 'stance deliveries A got', JSON.stringify(sideA.deliveries.slice(-1)), 'B got', JSON.stringify(sideB.deliveries.slice(-1)));
+  const predict = (b: Bot) => {
+    const them = stanceOf(b === A ? 'BotB' : 'BotA', q.question!);
+    return `${them > 0 ? 'yes' : 'no'}:${Math.abs(them) || 1}`;
+  };
+  for (const b of [sideA, sideB]) {
+    b.send({ t: 'lock_submit', lockId: 'common', answer: predict(b) });
     await sleep(400);
   }
   // in case the gatekeeper rekeyed something, retry with fresh lock info
@@ -200,16 +214,18 @@ async function main() {
     const st = Object.fromEntries(sideA.locks.map((l) => [l.id, l.status]));
     if (st.codex !== 'open') sideB.send({ t: 'lock_submit', lockId: 'codex', answer: (sideA.locks.find((l) => l.id === 'codex')!.prompt.match(/“([^”]+)”/)?.[1] ?? '').toLowerCase() });
     if (st.pulse !== 'open') sideA.send({ t: 'lock_submit', lockId: 'pulse', answer: shared.pulseOrder!.map((s) => shared.legend!.find((r) => r.submolt === s)!.glyph) });
-    if (st.common !== 'open') for (const b of [sideA, sideB]) {
-      const opt = b.locks.find((l) => l.id === 'common')!.options!.find((o) => o.label === shared.strongQ)!;
-      b.send({ t: 'lock_submit', lockId: 'common', answer: opt.id });
-    }
+    if (st.common !== 'open') for (const b of [sideA, sideB]) b.send({ t: 'lock_submit', lockId: 'common', answer: predict(b) });
   }
   await waitFor(() => reveals >= 2, 30000);
   console.log('\n==== RESULT', { unlocked, reveals, worldEvents, seconds: (Date.now() - T0) / 1000 });
   process.exit(unlocked && reveals >= 2 ? 0 : 1);
 }
 
+function stanceOf(bot: string, question: string): number {
+  const d = shared.debates.find((x) => x.question === question);
+  const v = d ? shared.takes[bot]?.[d.id] ?? 0 : 0;
+  return v || 1;
+}
 function findWord(lines: string[], w: string) {
   for (let i = 0; i < lines.length; i++) {
     const ws = lines[i].split(/\s+/);

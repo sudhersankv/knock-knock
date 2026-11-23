@@ -9,3 +9,9 @@ data/events.ndjson
 .bruin.local.yml
 __pycache__/
 .venv/
+
+.bruin.yml
+logs/runs
+logs/*.log
+*.py[cod]
+logs/queries

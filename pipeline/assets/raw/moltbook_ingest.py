@@ -40,7 +40,7 @@ def flatten(comments, out, post_id):
 
 def main():
     RAW.mkdir(parents=True, exist_ok=True)
-    fetched_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    fetched_at = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
     subs = get("/submolts").get("submolts", [])
     subs = [s for s in subs if not s.get("is_nsfw") and not s.get("is_private")]
     subs.sort(key=lambda s: -(s.get("subscriber_count") or 0))
@@ -68,6 +68,15 @@ def main():
     with ThreadPoolExecutor(4) as ex:
         for batch in ex.map(fetch, jobs):
             for p in batch: add(p)
+
+    # List endpoints truncate content; fetch full bodies for the posts most likely to be used in-game.
+    full = sorted(posts.values(), key=lambda p: -(p["comment_count"] * 2 + p["upvotes"]))[:140]
+    def fetch_full(p):
+        return p["post_id"], (get(f"/posts/{p['post_id']}").get("post") or {}).get("content")
+    with ThreadPoolExecutor(6) as ex:
+        for pid, content in ex.map(fetch_full, full):
+            if content:
+                posts[pid]["content"] = content
 
     # Comments for the most discussed posts (debate candidates)
     top = sorted(posts.values(), key=lambda p: -p["comment_count"])[:45]

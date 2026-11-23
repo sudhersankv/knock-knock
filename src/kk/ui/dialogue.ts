@@ -1,0 +1,140 @@
+// Dialogue box (Moderator briefing, courier lines), item-get moment, and first-time tip cards.
+import { h, ui } from './dom';
+import { dia, kc, rule } from './hud';
+
+let open: { close: () => void; advance: () => void } | null = null;
+
+export function dialogueOpen() {
+  return !!open;
+}
+/** Advance (E / Enter / Space / tap). Returns true if a dialogue consumed it. */
+export function dialogueAdvance() {
+  if (!open) return false;
+  open.advance();
+  return true;
+}
+
+/** Sequential cards in a bottom-center dialogue box. Typewriter per card; advance completes the line, then moves on. */
+export function showDialogue(name: string, lines: string[], instant = false, autoCloseMs = 0): Promise<void> {
+  open?.close();
+  return new Promise((resolve) => {
+    let i = 0;
+    let typing = false;
+    const txt = h('div', { class: 'txt' });
+    const pg = h('div', { class: 'pg' });
+    const box = h('div', { class: 'dlg frame solid' }, h('div', { class: 'name' }, name), txt, h('div', { class: 'adv' }, '▼'), pg);
+    const host = h('div', { class: 'dlg-host' }, box);
+    let timer = 0;
+    const render = () => {
+      txt.innerHTML = '';
+      pg.innerHTML = '';
+      if (lines.length > 1) lines.forEach((_, k) => pg.append(h('i', { class: k <= i ? 'on' : '' })));
+      const line = lines[i];
+      if (instant) {
+        txt.textContent = line;
+        return;
+      }
+      typing = true;
+      [...line].forEach((ch, k) => txt.append(h('span', { class: 'ch', style: `animation-delay:${k * 0.022}s` }, ch)));
+      clearTimeout(timer);
+      timer = window.setTimeout(() => (typing = false), line.length * 22 + 80);
+    };
+    const close = () => {
+      clearTimeout(timer);
+      host.remove();
+      open = null;
+      resolve();
+    };
+    const advance = () => {
+      if (typing) {
+        typing = false;
+        txt.querySelectorAll<HTMLElement>('.ch').forEach((c) => (c.style.animationDelay = '0s'));
+        return;
+      }
+      i++;
+      if (i >= lines.length) close();
+      else render();
+    };
+    box.addEventListener('click', advance);
+    open = { close, advance };
+    ui().append(host);
+    render();
+    if (autoCloseMs) {
+      host.classList.add('passive');
+      setTimeout(() => open?.close === close && close(), autoCloseMs);
+    }
+  });
+}
+
+export interface ShardInfo {
+  title: string;
+  fragment: string;
+  from: string;
+  teaches: string[];
+  found: number;
+  total: number;
+}
+/** The "item get" moment for a petition shard. */
+export function showItemGet(s: ShardInfo, courier: string): Promise<void> {
+  return new Promise((resolve) => {
+    const el = h(
+      'div',
+      { class: 'itemget' },
+      h(
+        'div',
+        { class: 'col' },
+        h('div', { class: 'shard' }, h('div', { class: 'halo' }), shardSvg()),
+        h('div', { class: 'nm' }, s.title),
+        rule(),
+        h('div', { class: 'ds' }, s.fragment),
+        h('div', { class: 'meta' }, dia('fill'), `Petition shard ${s.found} of ${s.total}`, s.from ? ` from ${s.from}` : ''),
+        s.teaches.length ? h('div', { class: 'teach' }, ...s.teaches.slice(0, 10).map((w) => h('span', { class: 'word new' }, w))) : null,
+        s.teaches.length ? h('div', { class: 'fine' }, `${courier} learned ${s.teaches.length} new word${s.teaches.length === 1 ? '' : 's'}.`) : null,
+        h('div', { class: 'cont' }, kc('E', true), 'Continue'),
+      ),
+    );
+    let ready = false;
+    setTimeout(() => (ready = true), 700);
+    const close = () => {
+      if (!ready) return;
+      el.remove();
+      open = null;
+      resolve();
+    };
+    el.addEventListener('click', close);
+    open = { close, advance: close };
+    ui().append(el);
+  });
+}
+
+function shardSvg() {
+  const t = document.createElement('template');
+  t.innerHTML = `<svg viewBox="0 0 92 120"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff8e1"/><stop offset=".45" stop-color="#ffd27a"/><stop offset="1" stop-color="#c98a1b"/></linearGradient></defs>
+  <path d="M46 4 L80 44 L58 116 L30 104 L12 50 Z" fill="url(#sg)" stroke="#fff3d0" stroke-width="1.5" stroke-linejoin="round" opacity=".95"/>
+  <path d="M46 4 L46 60 L58 116 M46 60 L12 50 M46 60 L80 44" fill="none" stroke="#fff3d0" stroke-width="1" opacity=".7"/>
+  <path d="M30 40 h26 M26 52 h30 M30 64 h20" stroke="#7a5310" stroke-width="1.4" opacity=".55"/></svg>`;
+  return t.content.firstElementChild as SVGElement;
+}
+
+/** First-time contextual tips, each shown once per browser. */
+const seen = new Set<string>(JSON.parse(safeGet('kk.tips') ?? '[]'));
+function safeGet(k: string) {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+export function tipOnce(key: string): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  try {
+    localStorage.setItem('kk.tips', JSON.stringify([...seen]));
+  } catch {
+    /* private mode */
+  }
+  return true;
+}
+export function tipCard(title: string, body: string) {
+  return h('div', { class: 'tipcard frame solid' }, h('div', { class: 'hd' }, dia('fill'), title), body);
+}

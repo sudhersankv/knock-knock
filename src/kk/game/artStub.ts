@@ -196,7 +196,7 @@ export function buildWorld(stage: Stage): World {
 function capsuleRig(color: number, radius: number, height: number, sphere = false): Rig {
   const root = new THREE.Group();
   const mat = std(color);
-  const body = new THREE.Mesh(sphere ? new THREE.SphereGeometry(radius, 16, 12) : new THREE.CapsuleGeometry(radius, height - radius * 2, 6, 12), mat);
+  const body = new THREE.Mesh(sphere ? new THREE.SphereGeometry(radius, 16, 12) : new THREE.CylinderGeometry(radius, radius * 0.9, height, 14), mat);
   body.position.y = sphere ? radius : height / 2;
   body.castShadow = true;
   root.add(body);

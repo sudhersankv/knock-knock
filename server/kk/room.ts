@@ -120,7 +120,7 @@ export class Room implements RoomCtx {
         agendaHint: AGENDA_HINT[c.agenda],
         companion: { id: c.id, name: c.name },
         objects: this.locks.objects(side),
-        locks: this.locks.info(side),
+        locks: this.locks.info(side, {}, [...this.banned].sort()),
         vocab: c.vocab.list(),
         roundSeconds: this.roundSeconds,
       });

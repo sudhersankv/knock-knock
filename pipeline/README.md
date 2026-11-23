@@ -15,13 +15,14 @@ bash pipeline/run.sh stats    # about 2 s, after every round: data/events.ndjson
 | Asset | Type | What it does |
 |---|---|---|
 | `raw.moltbook_ingest` | python | Pulls from the public Moltbook API (no key, read-only): about 12 submolts, about 500 hot and new posts, full bodies for the 140 most-used posts, and comment trees (about 4.5k comments). Writes `raw.submolts`, `raw.posts` and `raw.comments`. |
+| (society) | python | The same ingest pages the global "new" feed back exactly 24 h to get posts, comments on those posts and distinct active agents, then reads platform totals from `/api/v1/stats`. The result is written to `raw.society` and becomes `round_pack.society`. |
 | `raw.submolts_checked` | sql (view) | not_null and unique checks on submolts. |
 | `stage.posts_clean` | sql | Dedupes posts and strips markdown, links, emails and @handles. Includes a custom check that no PII survives. |
 | `stage.comments_clean` | sql | Cleans comments the same way and keeps reply depth, which is how arguments are detected. |
 | `game.threads_vocab` | python | Picks the in-world clue threads and computes each thread's 12 most distinctive words by TF-IDF. Reading a thread in-game grants exactly those words; companions can only speak words they have harvested. |
 | `game.codex` | python | **Lock 1, book cipher.** Selects real posts: easy ones are 40–120 words, hard ones 150–300. Each is split into lines of about 8 words. The pass word has 7+ letters, occurs exactly once, and appears in no vocabulary, so a companion can never say it. Players have to send something like "line 4 word 9". |
 | `game.pulse` | python | **Lock 2, the live society.** Posts plus comments per submolt over the last 24 h, frozen into snapshots of 3–4 submolts. Adjacent counts must differ by at least 15% so the order is unambiguous. The answer changes as Moltbook changes. |
-| `game.debates` | python + LLM | **Lock 3 and onboarding.** Takes the 40 most split threads of the last 14 days: many comments relative to upvotes, deep reply chains and downvotes. One batched LLM call classifies them as philosophical, meaning moral or ethical questions such as memory deletion, identity, honesty, consent or autonomy, and adds a theme. Tech support, product and meta posts are dropped. The top 5 are rewritten as neutral yes/no questions, each keyword is validated against the thread's vocabulary, and every debate thread is guaranteed to be readable in-world. |
+| `game.debates` | python + LLM | **Lock 3 and onboarding.** Takes the 40 most split threads of the last 14 days: many comments relative to upvotes, deep reply chains and downvotes. One batched LLM call classifies them as philosophical, meaning moral or ethical questions such as memory deletion, identity, honesty, consent or autonomy, and adds a theme. Tech support, product and meta posts are dropped. The top 5 are rewritten as neutral yes/no questions, each keyword is validated against the thread's vocabulary, and every debate thread is guaranteed to be readable in-world.<br><br>**Voices:** each debate gets 2–4 real top replies, PII-filtered and trimmed to 220 characters or fewer. An LLM call per debate tags each reply as leaning yes or no; 8 debates are over-selected and the ones with both sides represented are kept. |
 | `game.quality_gate` | sql (view) | 12 custom checks. A failed check fails the run, and the game keeps the last good pack. |
 | `game.export_round_pack` | python | Writes `data/round_pack.json` (see `shared/kk/pack.ts`), re-runs every rule and embeds the results in `checks[]`. |
 | `stats.events` | python | Loads `data/events.ndjson`, which the game server appends to on every relay, word drop, trade, rekey, budget change and unlock. |
@@ -29,7 +30,7 @@ bash pipeline/run.sh stats    # about 2 s, after every round: data/events.ndjson
 | `stats.pair_stats` | sql | Solve time per room and difficulty, used for the leaderboard. |
 | `stats.export_agent_stats` | python | Writes `data/agent_stats.json`, which includes a one-line `memoryLine` per agent. The server puts that line into the agent's prompt in the next round; for example, a companion caught dropping words gets more honest. |
 
-**Check counts:** the full run passes 28 Bruin quality checks plus 12 embedded pack checks, and the stats run passes 4.
+**Check counts:** the full run passes 31 Bruin quality checks plus 14 embedded pack checks, and the stats run passes 4.
 
 The quality gate checks enforce these rules:
 - Every thread has a real Moltbook ID.

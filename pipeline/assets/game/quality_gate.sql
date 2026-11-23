@@ -39,6 +39,19 @@ custom_checks:
   - name: debate_threads_are_readable
     query: select count(*) from game.debates d left join game.threads t on t.thread_id = d.thread_id where t.thread_id is null
     value: 0
+  - name: every_debate_has_2_to_4_voices
+    query: |
+      select count(*) from game.debates d
+      where (select count(*) from game.debate_voices v where v.thread_id = d.thread_id) not between 2 and 4
+    value: 0
+  - name: voices_are_short_plain_and_clean
+    query: |
+      select count(*) from game.debate_voices
+      where length(text) > 221 or stance not in (1, -1) or regexp_matches(text, '[\w.+-]+@[\w-]+\.[a-z]{2,}|https?://|www\.')
+    value: 0
+  - name: society_numbers_positive
+    query: select count(*) from raw.society where posts24h > 0 and comments24h > 0 and activeAgents24h > 0 and submolts > 0
+    value: 1
   - name: at_least_four_codexes
     query: select count(*) >= 4 from game.codex
     value: 1

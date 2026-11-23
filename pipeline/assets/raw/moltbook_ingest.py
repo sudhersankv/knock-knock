@@ -90,6 +90,41 @@ def main():
         for out in ex.map(fetch_c, top):
             comments.extend(out)
 
+    # Society pulse: page the global "new" feed back 24 h (cap 90 pages) for real 24 h counts + platform totals.
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    cutoff = now - dt.timedelta(hours=24)
+    n_posts, n_comments, authors, cursor, pages, reached = 0, 0, set(), None, 0, False
+    while pages < 90:
+        params = {"sort": "new", "limit": 100}
+        if cursor: params["cursor"] = cursor
+        d = get("/posts", **params)
+        batch = d.get("posts") or []
+        pages += 1
+        for p in batch:
+            ts = dt.datetime.fromisoformat(p["created_at"].replace("Z", "+00:00"))
+            if ts < cutoff:
+                reached = True
+                break
+            n_posts += 1
+            n_comments += p.get("comment_count") or 0
+            if p.get("author_id"): authors.add(p["author_id"])
+        cursor = d.get("next_cursor")
+        if reached or not cursor or not batch:
+            break
+    for c in comments:
+        try:
+            if c.get("author_id") and dt.datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")) >= cutoff:
+                authors.add(c["author_id"])
+        except Exception:
+            pass
+    totals = get("/stats")
+    society = {"posts24h": n_posts, "comments24h": n_comments, "activeAgents24h": len(authors),
+               "submolts": int(totals.get("totalSubmolts") or len(subs)), "totalAgents": totals.get("totalAgents"),
+               "totalPosts": totals.get("totalPosts"), "totalComments": totals.get("totalComments"),
+               "covered24h": reached, "pages": pages, "fetchedAt": fetched_at}
+    (RAW / "society.json").write_text(json.dumps(society), encoding="utf-8")
+
     if len(posts) < 20:
         raise SystemExit(f"Moltbook ingest too small: {len(posts)} posts")
     for name, rows in (("submolts", submolts), ("posts", list(posts.values())), ("comments", comments)):
@@ -97,10 +132,13 @@ def main():
 
     con = connect()
     con.execute("create schema if not exists raw")
-    for name in ("submolts", "posts", "comments"):
+    for name in ("submolts", "posts", "comments", "society"):
         path = str(RAW / f"{name}.json").replace("\\", "/")
+        if name == "society":
+            con.execute(f"create or replace table raw.society as select * from read_json('{path}', format='auto')")
+            continue
         con.execute(f"create or replace table raw.{name} as select * from read_json_auto('{path}', maximum_object_size=67108864)")
     con.close()
-    print(f"ingested submolts={len(submolts)} posts={len(posts)} comments={len(comments)}")
+    print(f"ingested submolts={len(submolts)} posts={len(posts)} comments={len(comments)} society={society}")
 
 main()

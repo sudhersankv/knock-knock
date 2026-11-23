@@ -1,0 +1,30 @@
+{
+  "name": "knock-knock",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n client,server -c magenta,cyan \"vite --host\" \"tsx watch --env-file=.env server/kk/index.ts\"",
+    "client": "vite --host",
+    "server": "tsx watch --env-file=.env server/kk/index.ts",
+    "start": "tsx server/kk/index.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "pipeline": "bash pipeline/run.sh",
+    "pipeline:stats": "bash pipeline/run.sh stats"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "three-mesh-bvh": "^0.9.18",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
+    "concurrently": "^10.0.7",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

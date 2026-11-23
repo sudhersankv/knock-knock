@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { NET_PORT } from './shared/constants';
+const NET_PORT = 8787;
 
 export default defineConfig({
   build: { target: 'es2022' },

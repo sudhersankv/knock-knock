@@ -3,6 +3,7 @@ import type { Anim } from '../../../shared/kk/protocol';
 import type { Rig, RigFactory } from '../contracts';
 import { charMat, glow } from './mats';
 import { radialTexture } from './glyphs';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { chars, kaykitReady, loadKayKit, teamTexture, WEAPON, type CharName } from './kaykit';
 
@@ -53,6 +54,97 @@ function blob(parent: THREE.Object3D, size: number) {
   b.userData.blob = true;
   parent.add(b);
   return b;
+}
+
+// ---------------------------------------------------------------- draw-call reduction
+/** Merge several static meshes into ONE vertex-colored mesh living in `container` space. */
+function bakeMeshes(container: THREE.Object3D, parts: THREE.Mesh[], rough = 0.8): THREE.Mesh {
+  container.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(container.matrixWorld).invert();
+  const rel = new THREE.Matrix4();
+  const c = new THREE.Color();
+  const geos = parts.map((p) => {
+    let g = p.geometry.index ? p.geometry.toNonIndexed() : p.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    g.applyMatrix4(rel.multiplyMatrices(inv, p.matrixWorld));
+    c.copy((p.material as THREE.MeshStandardMaterial).color);
+    c.r = Math.min(1, c.r); c.g = Math.min(1, c.g); c.b = Math.min(1, c.b);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  });
+  for (const p of parts) p.removeFromParent();
+  const merged = mergeGeometries(geos, false)!;
+  const m = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, metalness: 0 }));
+  m.castShadow = true;
+  container.add(m);
+  return m;
+}
+/** Replace a mesh subtree by a Group (same local transform) holding one baked mesh. */
+function bakeTree(node: THREE.Mesh, rough = 0.8): THREE.Group {
+  const g = new THREE.Group();
+  g.position.copy(node.position);
+  g.quaternion.copy(node.quaternion);
+  g.scale.copy(node.scale);
+  node.parent!.add(g);
+  const parts: THREE.Mesh[] = [];
+  node.traverse((o) => (o as THREE.Mesh).isMesh && parts.push(o as THREE.Mesh));
+  node.updateMatrixWorld(true);
+  g.updateMatrixWorld(true);
+  const m = bakeMeshes(g, parts, rough);
+  m.castShadow = false;
+  return g;
+}
+
+/**
+ * Merge all visible SkinnedMeshes of a KayKit clone that share one skeleton + atlas into ONE skinned mesh
+ * (body, arms, legs, head, cape, hat: ~7 draw calls -> 1). Falls back silently if incompatible.
+ */
+function mergeSkinned(model: THREE.Object3D) {
+  const parts: THREE.SkinnedMesh[] = [];
+  model.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (m.isSkinnedMesh && m.visible) {
+      let vis = true;
+      for (let p: THREE.Object3D | null = m; p && p !== model; p = p.parent) if (!p.visible) vis = false;
+      if (vis) parts.push(m);
+    }
+  });
+  const mapOf = (m: THREE.SkinnedMesh) => (m.material as THREE.MeshStandardMaterial).map ?? null;
+  const first0 = parts.find((p) => !p.userData.keepGlow);
+  if (!first0) return;
+  const sameBones = (a: THREE.Skeleton, b: THREE.Skeleton) => a === b || (a.bones.length === b.bones.length && a.bones.every((bn, i) => bn === b.bones[i]));
+  const same = parts.filter((p) => !p.userData.keepGlow && mapOf(p) === mapOf(first0) && sameBones(p.skeleton, first0.skeleton));
+  parts.length = 0;
+  parts.push(...same);
+  if (parts.length < 2) return;
+  const first = parts[0];
+  try {
+    model.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(first.matrixWorld).invert();
+    const geos = parts.map((p) => {
+      const g = p.geometry.clone();
+      g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, p.matrixWorld));
+      for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'skinIndex', 'skinWeight'].includes(k)) g.deleteAttribute(k);
+      return g.index ? g : g;
+    });
+    const allIndexed = geos.every((g) => g.index);
+    const merged = mergeGeometries(allIndexed ? geos : geos.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+    if (!merged) return;
+    const sm = new THREE.SkinnedMesh(merged, first.material);
+    sm.castShadow = true;
+    sm.frustumCulled = false;
+    sm.position.copy(first.position);
+    sm.quaternion.copy(first.quaternion);
+    sm.scale.copy(first.scale);
+    first.parent!.add(sm);
+    sm.bind(first.skeleton, first.bindMatrix);
+    for (const p of parts) p.removeFromParent();
+  } catch (e) {
+    console.warn('[art] skinned merge skipped', e);
+  }
 }
 
 // ---------------------------------------------------------------- human
@@ -170,7 +262,8 @@ function companion(color: number, seed: number): Rig {
   const belly = mesh(S(0.24), charMat(0xfff8ee, 0.9), 0, 0.3, 0.2, body);
   belly.scale.set(1, 0.95, 0.55);
   // big glossy eyes on the FRONT-TOP of the face so they read from a 55deg-down camera
-  const eyes: THREE.Mesh[] = [];
+  const eyes: THREE.Object3D[] = [];
+  const bodyParts: THREE.Mesh[] = [torso, belly];
   const eyeWhite = charMat(0xffffff, 0.25);
   const pupilMat = new THREE.MeshStandardMaterial({ color: 0x1a1230, roughness: 0.15, metalness: 0 });
   for (const sd of [-1, 1]) {
@@ -187,12 +280,14 @@ function companion(color: number, seed: number): Rig {
     const ck = mesh(S(0.055), charMat(0xff9fb4, 0.8), sd * 0.24, 0.41, 0.25, body);
     ck.scale.set(1, 0.55, 0.3);
     ck.rotation.y = sd * 0.6;
+    bodyParts.push(ck);
   }
   // tiny smile
   const smile = mesh(new THREE.TorusGeometry(0.035, 0.012, 6, 12, Math.PI), charMat(0x3a2230, 0.6), 0, 0.44, 0.345, body);
   smile.rotation.set(-0.3, 0, Math.PI);
+  bodyParts.push(smile);
   // ear tufts: soft rounded, swept back, accent inner
-  const ears: THREE.Mesh[] = [];
+  const ears: THREE.Object3D[] = [];
   for (const sd of [-1, 1]) {
     const ear = mesh(S(0.1), fur, sd * 0.2, 0.7, -0.04, body);
     ear.scale.set(0.75, 1.7, 0.6);
@@ -202,13 +297,20 @@ function companion(color: number, seed: number): Rig {
     ears.push(ear);
   }
   // fluffy top tuft
-  mesh(S(0.07), fur, 0, 0.72, 0.05, body).scale.set(1, 1.3, 0.8);
+  const tuft = mesh(S(0.07), fur, 0, 0.72, 0.05, body);
+  tuft.scale.set(1, 1.3, 0.8);
+  bodyParts.push(tuft);
   const feet: THREE.Mesh[] = [];
   for (const sd of [-1, 1]) {
     const f = mesh(S(0.08), fur, sd * 0.16, 0.05, 0.12, body);
     f.scale.set(1, 0.55, 1.3);
     feet.push(f);
+    bodyParts.push(f);
   }
+  // bake: body -> 1 mesh, each eye -> 1, each ear -> 1 (was ~20 meshes)
+  bakeMeshes(body, bodyParts, 0.85);
+  for (let i = 0; i < 2; i++) eyes[i] = bakeTree(eyes[i] as THREE.Mesh, 0.3);
+  for (let i = 0; i < 2; i++) ears[i] = bakeTree(ears[i] as THREE.Mesh, 0.85);
   // tail with glowing tip light in owner color
   const tail = new THREE.Group();
   tail.position.set(0, 0.25, -0.3);
@@ -246,6 +348,7 @@ function companion(color: number, seed: number): Rig {
   for (let i = 0; i < 5; i++) {
     const m = new THREE.Mesh(sph(0.07 * (1 - i * 0.15)), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2 - i * 0.35), transparent: true, opacity: 0.7 - i * 0.12, toneMapped: false, depthWrite: false }));
     m.userData.keepGlow = true;
+    m.castShadow = false;
     root.add(m);
     trail.push(m);
   }
@@ -426,6 +529,14 @@ function scout(): Rig {
   body.add(lantern);
   mesh(new THREE.BoxGeometry(0.16, 0.04, 0.16), charMat(0xc8964a, 0.5), 0, 0.12, 0, lantern);
   mesh(new THREE.BoxGeometry(0.12, 0.18, 0.12), glow(0xffc857, 3), 0, 0, 0, lantern).userData.keepGlow = true;
+  // bake static parts: head subtree -> 1 mesh, torso pieces -> 1 mesh
+  {
+    const hm: THREE.Mesh[] = [];
+    head.traverse((o) => (o as THREE.Mesh).isMesh && hm.push(o as THREE.Mesh));
+    bakeMeshes(head, hm, 0.8);
+    const bm = body.children.filter((o) => (o as THREE.Mesh).isMesh && !wings.includes(o as THREE.Mesh) && !legs.includes(o as THREE.Mesh)) as THREE.Mesh[];
+    bakeMeshes(body, bm, 0.8);
+  }
   const sil = makeSilhouette(root);
   let t = 0;
   return {
@@ -523,6 +634,7 @@ function kayHuman(color: number, seed: number): Rig {
       m.castShadow = true;
     }
   });
+  if (!/merge=0/.test(location.search)) mergeSkinned(model);
   const anim = setupMixer(model, tpl.clips);
   anim.play('Idle', 0);
   let waveT = 0;
@@ -570,6 +682,7 @@ function kayGatekeeper(): Rig {
     mat.roughness = 0.95;
     m.material = mat;
   });
+  if (!/merge=0/.test(location.search)) mergeSkinned(model);
   const anim = setupMixer(model, tpl.clips);
   anim.play('Idle_B', 0);
   const sil = makeSilhouette(root);

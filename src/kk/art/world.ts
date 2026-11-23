@@ -3,9 +3,10 @@ import type { Collider, Stage, World } from '../contracts';
 import type { LockId, LockStatus } from '../../../shared/kk/protocol';
 import { at, DOOR, KEYHOLE_Y, PALETTE, SIDE_BOUNDS, THREAD_SLOTS, WALL, objectId, type Side, type V2 } from '../../../shared/kk/layout';
 import { Batch, G, T } from './batch';
-import { ArtUniforms, COL, glowMaterial, patchWorld, worldMaterial } from './mats';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ArtQuality, ArtUniforms, COL, glowMaterial, patchWorld, worldMaterial } from './mats';
 import * as P from './props';
-import { glyphTexture, radialTexture, scriptTexture } from './glyphs';
+import { glyphStrip, glyphTexture, radialTexture, scriptTexture } from './glyphs';
 import { buildPropMeshes, props as kkProps, type PropName } from './kaykit';
 
 /** Agents inside the chamber stand on top of the gatehouse: use this as their y. */
@@ -48,7 +49,7 @@ function distPaths(x: number, z: number) {
 interface Interactable {
   id: string;
   group: THREE.Group;
-  marker?: THREE.Mesh;
+  marker: number; // index into the instanced markers, -1 = none
   markerBaseY: number;
   radius: number;
   read: boolean;
@@ -428,25 +429,36 @@ export function buildWorld(stage: Stage): World {
   const LOCKS: LockId[] = ['codex', 'pulse', 'common'];
   const runes: { lock: LockId; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; spin: number }[] = [];
   const runeState: Record<LockId, LockStatus> = { codex: 'locked', pulse: 'locked', common: 'locked' };
+  const runeB = new Batch(mulberry(9)), runeG = new Batch(mulberry(10));
+  const doorRunes: THREE.Mesh[] = [];
+  const ringGeo = new THREE.TorusGeometry(0.42, 0.08, 8, 24);
+  const backGeo = new THREE.CircleGeometry(0.4, 20);
   for (const side of ['A', 'B'] as Side[]) {
     const fx = side === 'A' ? -1 : 1;
     LOCKS.forEach((lock, i) => {
       const z = (i - 1) * 1.75 * (side === 'A' ? 1 : -1);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.08, 8, 24), opaque);
-      ring.position.set(fx * (GATE.halfX + 0.25), 7.55, z);
-      ring.rotation.y = Math.PI / 2;
-      root.add(ring);
+      runeB.add(ringGeo, T(fx * (GATE.halfX + 0.25), 7.55, z, Math.PI / 2), COL.stoneLight, 0.02, 0);
       const mat = new THREE.MeshBasicMaterial({ map: glyphTexture(11 + i * 7), transparent: true, color: 0x7b5cff, toneMapped: false, depthWrite: false });
       const disc = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.75), mat);
       disc.position.set(fx * (GATE.halfX + 0.27), 7.55, z);
       disc.rotation.y = fx * Math.PI / 2;
       root.add(disc);
-      const back = new THREE.Mesh(new THREE.CircleGeometry(0.4, 20), new THREE.MeshBasicMaterial({ color: 0x1a1428 }));
-      back.position.set(fx * (GATE.halfX + 0.24), 7.55, z);
-      back.rotation.y = fx * Math.PI / 2;
-      root.add(back);
+      runeG.add(backGeo, T(fx * (GATE.halfX + 0.24), 7.55, z, fx * Math.PI / 2), 0x1a1428, 0, 0);
       runes.push({ lock, mesh: disc, mat, spin: 0 });
+      // small twin on the door face, just above the keyhole: in frame for the 55deg game camera
+      const mat2 = new THREE.MeshBasicMaterial({ map: mat.map, transparent: true, color: 0x7b5cff, toneMapped: false, depthWrite: false });
+      const d2 = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.46), mat2);
+      d2.position.set(fx * 2.13, 1.75, (i - 1) * 0.62 * (side === 'A' ? 1 : -1));
+      d2.rotation.y = fx * Math.PI / 2;
+      root.add(d2);
+      doorRunes.push(d2);
+      runes.push({ lock, mesh: d2, mat: mat2, spin: 0 });
     });
+  }
+  {
+    const a = runeB.build(opaque, false), b2 = runeG.build(glowMat, false);
+    if (a) root.add(a);
+    if (b2) root.add(b2);
   }
 
   // chamber effects: floor glow, haze, lines
@@ -473,6 +485,18 @@ export function buildWorld(stage: Stage): World {
   emblem.position.set(0, CHAMBER_Y + 3.6, 0);
   root.add(emblem);
 
+  // rekey pulse: purple shock rings expanding on the ground in front of the door (both sides)
+  const pulseMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9d84ff).multiplyScalar(2), transparent: true, opacity: 0, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+  const pulses = (['A', 'B'] as Side[]).map((sd) => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1.0, 48), pulseMat);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(sd === 'A' ? -3.2 : 3.2, 0.06, 0);
+    m.visible = false;
+    root.add(m);
+    return m;
+  });
+  let rekeyT = 0;
+
   // warm flood light for the door opening (always present, intensity 0 until open: avoids shader recompiles)
   const flood = new THREE.PointLight(0xffc070, 0, 22, 1.6);
   flood.position.set(0, 3, 0);
@@ -483,7 +507,6 @@ export function buildWorld(stage: Stage): World {
   const hitboxes: THREE.Mesh[] = [];
   const hitMat = new THREE.MeshBasicMaterial({ visible: false });
   const markerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xa58cff).multiplyScalar(1.25), toneMapped: false });
-  const markerReadMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x8a8798).multiplyScalar(0.8) });
   const pulseBars: Record<Side, THREE.Mesh[]> = { A: [], B: [] };
   const codexGlyph: THREE.MeshBasicMaterial[] = [];
   const restoreTargets: Record<Side, number> = { A: 0, B: 0 };
@@ -555,10 +578,14 @@ export function buildWorld(stage: Stage): World {
       radius = 1.0;
     }
     const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    group.rotation.y = ry;
+    group.updateMatrix();
+    // static geometry goes into two world-wide merged meshes (1 draw call each for ALL interactables)
     const m = b.build(opaque);
-    if (m) group.add(m);
+    if (m) interOpaque.push(m.geometry.applyMatrix4(group.matrix));
     const g2 = gl.build(glowMat, false);
-    if (g2) group.add(g2);
+    if (g2) interGlow.push(g2.geometry.applyMatrix4(group.matrix));
     // emissive faces
     if (kind === 'codex') {
       const mat = new THREE.MeshBasicMaterial({ map: scriptTexture(idx + 3), transparent: true, color: new THREE.Color(0xffc857).multiplyScalar(1.6), toneMapped: false, depthWrite: false });
@@ -568,12 +595,10 @@ export function buildWorld(stage: Stage): World {
       codexGlyph.push(mat);
     }
     if (kind === 'legend') {
-      for (let i = 0; i < 4; i++) {
-        const mat = new THREE.MeshBasicMaterial({ map: glyphTexture(11 + i * 7, 64), transparent: true, color: new THREE.Color(0x9d84ff).multiplyScalar(1.8), toneMapped: false, depthWrite: false });
-        const d = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45), mat);
-        d.position.set(-0.8 + i * 0.53, 1.62, 0.07);
-        group.add(d);
-      }
+      const mat = new THREE.MeshBasicMaterial({ map: glyphStrip([11, 18, 25, 32], 64, 11), transparent: true, color: new THREE.Color(0x9d84ff).multiplyScalar(1.8), toneMapped: false, depthWrite: false });
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.53 * 4, 0.45), mat);
+      d.position.set(-0.8 + 1.5 * 0.53, 1.62, 0.07);
+      group.add(d);
     }
     if (kind === 'pulse') {
       for (let i = 0; i < 4; i++) {
@@ -584,15 +609,11 @@ export function buildWorld(stage: Stage): World {
       }
     }
     if (kind === 'takes') {
-      for (let i = 0; i < 5; i++) {
-        const mat = new THREE.MeshBasicMaterial({ map: glyphTexture(200 + i * 13, 64), transparent: true, color: new THREE.Color(0xffc857).multiplyScalar(1.5), toneMapped: false, depthWrite: false });
-        const d = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), mat);
-        d.position.set(-1.52 + i * 0.76, 0.95, 0.42);
-        group.add(d);
-      }
+      const mat = new THREE.MeshBasicMaterial({ map: glyphStrip([200, 213, 226, 239, 252], 64, 33), transparent: true, color: new THREE.Color(0xffc857).multiplyScalar(1.5), toneMapped: false, depthWrite: false });
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.76 * 5, 0.5), mat);
+      d.position.set(-1.52 + 2 * 0.76, 0.95, 0.42);
+      group.add(d);
     }
-    group.position.set(x, 0, z);
-    group.rotation.y = ry;
     root.add(group);
     aoBlobs.push({ x, z, r: radius * 1.6 });
     colliders.push({ kind: 'circle', x, z, r: radius * 0.75 });
@@ -601,15 +622,12 @@ export function buildWorld(stage: Stage): World {
     hb.userData.id = id;
     root.add(hb);
     hitboxes.push(hb);
-    let marker: THREE.Mesh | undefined;
-    if (kind !== 'terminal') {
-      marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.3, 0), markerMat);
-      marker.position.set(x, markerY, z);
-      marker.scale.y = 1.5;
-      root.add(marker);
-    }
+    const marker = kind !== 'terminal' ? markerCount++ : -1;
     inter.push({ id, group, marker, markerBaseY: markerY, radius, read: false });
   }
+  const interOpaque: THREE.BufferGeometry[] = [];
+  const interGlow: THREE.BufferGeometry[] = [];
+  let markerCount = 0;
   for (const side of ['A', 'B'] as Side[]) {
     addInteractable(side, 'terminal', 'terminal', 0);
     addInteractable(side, 'codex', 'codex', 1);
@@ -617,6 +635,20 @@ export function buildWorld(stage: Stage): World {
     addInteractable(side, 'takes', 'takes', 3);
     THREAD_SLOTS.forEach((s, i) => addInteractable(side, s, 'thread', 4 + i));
   }
+
+  {
+    const a = new THREE.Mesh(mergeGeometries(interOpaque, false)!, opaque);
+    a.castShadow = a.receiveShadow = true;
+    const b2 = new THREE.Mesh(mergeGeometries(interGlow, false)!, glowMat);
+    root.add(a, b2);
+  }
+  // all floating markers: ONE instanced mesh
+  const markers = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.3, 0), markerMat, markerCount);
+  markers.frustumCulled = false;
+  const mkColor = new THREE.Color(1, 1, 1);
+  for (let i = 0; i < markerCount; i++) markers.setColorAt(i, mkColor);
+  root.add(markers);
+  const mkM = new THREE.Matrix4(), mkQ = new THREE.Quaternion(), mkS = new THREE.Vector3(), mkP = new THREE.Vector3(), mkUp = new THREE.Vector3(0, 1, 0);
 
   // highlight ring
   const ringMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc857).multiplyScalar(1.6), transparent: true, opacity: 0.9, toneMapped: false, depthWrite: false });
@@ -711,12 +743,23 @@ export function buildWorld(stage: Stage): World {
       for (const s of ['A', 'B'] as Side[]) {
         keyFlash[s] = Math.max(0, keyFlash[s] - dt * 2.2);
         const g = keyholes[s];
-        const sc = (0.75 + (budgetShown - 4) * 0.17) * (1 - e) * (1 + keyFlash[s] * 0.6);
+        const sc = (0.75 + (budgetShown - 4) * 0.17) * (1 - e) * (1 + keyFlash[s] * 0.35);
         g.scale.setScalar(Math.max(0.001, sc));
-        (g.children[2] as THREE.Mesh).scale.setScalar(1 + keyFlash[s] * 1.5 + Math.sin(t * 2.5) * 0.06);
+        (g.children[2] as THREE.Mesh).scale.setScalar(1 + keyFlash[s] * 0.5 + Math.sin(t * 2.5) * 0.06);
       }
       budgetShown += (budget - budgetShown) * Math.min(1, dt * 3);
-      keyGlowMat.color.setRGB(3, 2.2, 0.9).multiplyScalar(1 + 0.15 * Math.sin(t * 3) + Math.max(keyFlash.A, keyFlash.B) * 1.5);
+      keyGlowMat.color.setRGB(3, 2.2, 0.9).multiplyScalar(1 + 0.15 * Math.sin(t * 3) + Math.max(keyFlash.A, keyFlash.B) * 0.6);
+      if (rekeyT > 0) keyGlowMat.color.lerp(new THREE.Color(1.6, 1.1, 3.2), Math.min(1, rekeyT));
+      for (const d of doorRunes) d.visible = e < 0.15;
+      if (rekeyT > 0) {
+        rekeyT = Math.max(0, rekeyT - dt);
+        const k = 1 - rekeyT / 1.6;
+        for (const p of pulses) {
+          p.visible = rekeyT > 0;
+          p.scale.setScalar(0.5 + k * 7);
+        }
+        pulseMat.opacity = (1 - k) * 0.9;
+      }
       // runes
       for (const ru of runes) {
         if (ru.spin > 0) {
@@ -747,10 +790,14 @@ export function buildWorld(stage: Stage): World {
       emblem.position.y = CHAMBER_Y + 3.6 + Math.sin(t * 1.5) * 0.15;
       emblem.rotation.y = t * 0.6;
       // markers bob
-      for (const it of inter) if (it.marker) {
-        it.marker.position.y = it.markerBaseY + Math.sin(t * 2 + it.markerBaseY * 3) * 0.12;
-        it.marker.rotation.y = t * 1.4;
+      for (const it of inter) if (it.marker >= 0) {
+        const sc = it.read ? 0.7 : 1;
+        mkP.set(it.group.position.x, it.markerBaseY + Math.sin(t * 2 + it.markerBaseY * 3) * 0.12, it.group.position.z);
+        mkQ.setFromAxisAngle(mkUp, t * 1.4);
+        mkS.set(sc, sc * 1.5, sc);
+        markers.setMatrixAt(it.marker, mkM.compose(mkP, mkQ, mkS));
       }
+      markers.instanceMatrix.needsUpdate = true;
       if (highlighted && ring.visible) {
         const s = highlighted.radius + 0.5 + Math.sin(t * 4) * 0.06;
         ring.scale.set(s, s, 1);
@@ -783,6 +830,7 @@ export function buildWorld(stage: Stage): World {
         fp.setXYZ(i, ffPos[i * 3] + Math.sin(t * 0.3 + sd) * 1.2, ffPos[i * 3 + 1] + Math.sin(t * 0.9 + sd * 2) * 0.4, ffPos[i * 3 + 2] + Math.cos(t * 0.25 + sd) * 1.2);
       }
       fp.needsUpdate = true;
+      ffGeo.setDrawRange(0, ArtQuality.level === 'low' ? 30 : FF);
       ffMat.opacity = 0.55 + 0.45 * Math.sin(t * 2.1);
       void dt;
     },
@@ -803,6 +851,7 @@ export function buildWorld(stage: Stage): World {
     },
     rekey(lockId) {
       for (const ru of runes) if (ru.lock === lockId) ru.spin = 1.4;
+      rekeyT = 1.6;
       if (lockId === 'codex') codexRewrite = 1.6;
     },
     setLockStates(states) {
@@ -818,14 +867,15 @@ export function buildWorld(stage: Stage): World {
     },
     markRead(id) {
       const it = inter.find((i) => i.id === id);
-      if (!it || it.read || !it.marker) return;
+      if (!it || it.read || it.marker < 0) return;
       it.read = true;
-      it.marker.material = markerReadMat;
-      it.marker.scale.setScalar(0.7);
+      markers.setColorAt(it.marker, mkColor.setRGB(0.42, 0.4, 0.5));
+      markers.instanceColor!.needsUpdate = true;
       const chk = new THREE.Sprite(new THREE.SpriteMaterial({ map: checkTex, color: new THREE.Color(0x2ec4b6).multiplyScalar(1.5), toneMapped: false, depthWrite: false }));
       chk.scale.setScalar(0.5);
       chk.position.set(0.45, 0.25, 0);
-      it.marker.add(chk);
+      chk.position.set(it.group.position.x + 0.45, it.markerBaseY + 0.25, it.group.position.z);
+      root.add(chk);
     },
     pick(nx, ny) {
       ndc.set(nx, ny);

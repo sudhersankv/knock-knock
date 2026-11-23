@@ -50,11 +50,11 @@ export function createFx(scene: THREE.Scene): Fx {
 
   return {
     dropDust(x, z, color) {
-      c.set(0xd8cfe0).lerp(new THREE.Color(color), 0.3).multiplyScalar(0.55);
-      for (let i = 0; i < 48; i++) {
+      c.set(0xe8dff0).lerp(new THREE.Color(color), 0.3).multiplyScalar(0.9);
+      for (let i = 0; i < 90; i++) {
         const a = (i / 48) * Math.PI * 2 + Math.random() * 0.1;
         const sp = 4 + Math.random() * 2.5;
-        spawn(x + Math.cos(a) * 0.3, 0.15, z + Math.sin(a) * 0.3, Math.cos(a) * sp, 0.4 + Math.random() * 0.8, Math.sin(a) * sp, 0.7 + Math.random() * 0.4, 0.9 + Math.random() * 0.6, c, 4.5, -0.5);
+        spawn(x + Math.cos(a) * 0.3, 0.15, z + Math.sin(a) * 0.3, Math.cos(a) * sp, 0.4 + Math.random() * 0.8, Math.sin(a) * sp, 0.8 + Math.random() * 0.4, 1.3 + Math.random() * 0.8, c, 4.0, -0.5);
       }
       c.set(color).multiplyScalar(1.4);
       for (let i = 0; i < 14; i++) spawn(x, 0.3, z, (Math.random() - 0.5) * 2, 2 + Math.random() * 2, (Math.random() - 0.5) * 2, 0.8, 0.25, c, 1.5, 3);

@@ -10,6 +10,9 @@ import { PALETTE } from '../../../shared/kk/layout';
     and regains saturation as locks open. Side is chosen by the sign of world x.
 */
 
+/** Shared runtime quality flag (set via stage.setQuality). */
+export const ArtQuality: { level: 'high' | 'low' } = { level: 'high' };
+
 export const ArtUniforms = {
   uRestoreA: { value: 0 },
   uRestoreB: { value: 0 },

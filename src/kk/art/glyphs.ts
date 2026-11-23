@@ -81,3 +81,20 @@ export function radialTexture(): THREE.CanvasTexture {
   radial = new THREE.CanvasTexture(c);
   return radial;
 }
+
+/** Several glyphs side by side in ONE texture (one draw call for a row of plaques). */
+export function glyphStrip(seeds: number[], cell = 64, gap = 0): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = seeds.length * (cell + gap);
+  c.height = cell;
+  const ctx = c.getContext('2d')!;
+  ctx.strokeStyle = '#fff';
+  ctx.fillStyle = '#fff';
+  ctx.lineWidth = cell * 0.07;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  seeds.forEach((sd, i) => drawGlyph(ctx, sd, i * (cell + gap) + (cell + gap) / 2, cell / 2, cell * 0.36));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

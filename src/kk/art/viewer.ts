@@ -2,7 +2,7 @@
 // Keys: WASD move (side-A human), O door, +/- budget, R rekey, C chamber, 1/2 restore A/B, K flash keyhole, H highlight cycle, Q swap side.
 // URL: ?still  ?zoom=14  ?yaw=0 (deg, 0 = side-A view)  ?cx=&cz= (camera target)  ?ao=0  ?q=low
 import * as THREE from 'three';
-import { createStage } from './stage';
+import { createStage, setQuality, getQuality } from './stage';
 import { buildWorld, CHAMBER_Y } from './world';
 import { rigs, loadArt } from './characters';
 import { createFx } from './fx';
@@ -56,6 +56,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') { const ids = ['A:codex', 'A:t1', 'A:board', 'A:takes', 'A:terminal', null]; world.highlight(ids[hi++ % ids.length]); }
   if (e.code === 'KeyL') world.setLockStates({ codex: 'open', pulse: 'waiting', common: 'locked' });
   if (e.code === 'KeyQ') side = side === 'A' ? 'B' : 'A';
+  if (e.code === 'KeyG') setQuality(getQuality() === 'high' ? 'low' : 'high');
   if (e.code === 'KeyF') fx.dropDust(humanA.x, humanA.z, SIDE_COLOR.A);
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
@@ -79,7 +80,7 @@ const yawDeg = params.get('yaw');
 const target = new THREE.Vector3(humanA.x, 0, humanA.z);
 const clock = new THREE.Clock();
 let t = 0;
-(window as any).__art = { stage, world, fx, actors };
+(window as any).__art = { stage, world, fx, actors, setQuality };
 
 function frame() {
   requestAnimationFrame(frame);

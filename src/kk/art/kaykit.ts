@@ -160,6 +160,7 @@ export function teamTexture(src: THREE.Texture, key: string, color: number): THR
 /** Build one merged mesh per prop type from a list of instances. */
 export function buildPropMeshes(instances: { name: PropName; x: number; y?: number; z: number; ry: number; s?: number }[]): THREE.Mesh[] {
   const byName = new Map<PropName, THREE.BufferGeometry[]>();
+  const keyTpl = new Map<PropName, PropTemplate>();
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
@@ -169,12 +170,14 @@ export function buildPropMeshes(instances: { name: PropName; x: number; y?: numb
     const s = it.s ?? 1;
     m.compose(new THREE.Vector3(it.x, it.y ?? 0, it.z), q.setFromAxisAngle(up, it.ry), new THREE.Vector3(s, s, s));
     const g = tpl.geometry.clone().applyMatrix4(m);
-    if (!byName.has(it.name)) byName.set(it.name, []);
-    byName.get(it.name)!.push(g);
+    // props sharing the same texture atlas are merged together (KayKit packs use one atlas)
+    const key = (((tpl.material as THREE.MeshStandardMaterial).map?.name || it.name) as PropName);
+    if (!byName.has(key)) { byName.set(key, []); keyTpl.set(key, tpl); }
+    byName.get(key)!.push(g);
   }
   const out: THREE.Mesh[] = [];
   for (const [name, geos] of byName) {
-    const tpl = props.get(name)!;
+    const tpl = keyTpl.get(name)!;
     const merged = mergeGeometries(geos, false)!;
     merged.computeBoundingSphere();
     const mesh = new THREE.Mesh(merged, tpl.material);

@@ -7,19 +7,28 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { Stage } from '../contracts';
 import { PALETTE } from '../../../shared/kk/layout';
-import { ArtUniforms } from './mats';
+import { ArtQuality, ArtUniforms } from './mats';
 
 /*
   Frame: RenderPass -> GTAO (half res, soft) -> bloom (high threshold: only emissives) -> grade/vignette -> output.
-  Quality switches (URL): ?ao=0 disables AO, ?q=low drops AO + caps pixel ratio at 1.
+  Quality: ?q=low / ?ao=0 at load, or setQuality('high'|'low') at runtime.
 */
+export type Quality = 'high' | 'low';
+let applyQuality: ((q: Quality) => void) | null = null;
+/** Switch quality at runtime (no reload). low = AO off, pixelRatio 1, 1024 shadows, MSAA on, fewer fireflies. */
+export function setQuality(level: Quality) {
+  ArtQuality.level = level;
+  applyQuality?.(level);
+}
+export function getQuality(): Quality {
+  return ArtQuality.level;
+}
+
 export function createStage(canvas: HTMLCanvasElement): Stage {
   const params = new URLSearchParams(location.search);
-  const low = params.get('q') === 'low';
-  const useAO = !low && params.get('ao') !== '0';
+  const initial: Quality = params.get('q') === 'low' ? 'low' : 'high';
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, low ? 1 : 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -56,36 +65,59 @@ export function createStage(canvas: HTMLCanvasElement): Stage {
   // ---- post ----
   const size = new THREE.Vector2();
   renderer.getDrawingBufferSize(size);
-  const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: useAO ? 0 : 4 });
+  const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 0 });
   const composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  let gtao: GTAOPass | null = null;
-  if (useAO) {
-    gtao = new GTAOPass(scene, camera, Math.floor(size.x / 2), Math.floor(size.y / 2));
-    gtao.output = GTAOPass.OUTPUT.Default;
-    gtao.blendIntensity = 0.75;
-    gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 12 });
-    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
-    composer.addPass(gtao);
-  }
+  // AO pass is always constructed and toggled with .enabled so quality can change at runtime
+  const gtao = new GTAOPass(scene, camera, Math.max(1, Math.floor(size.x / 2)), Math.max(1, Math.floor(size.y / 2)));
+  gtao.output = GTAOPass.OUTPUT.Default;
+  gtao.blendIntensity = 0.75;
+  gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 12 });
+  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
+  composer.addPass(gtao);
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.55, 0.92);
   composer.addPass(bloom);
   const grade = new ShaderPass(GradeShader);
   composer.addPass(grade);
   composer.addPass(new OutputPass());
 
+  let lastW = canvas.clientWidth || innerWidth, lastH = canvas.clientHeight || innerHeight;
   function resize(w: number, h: number) {
+    lastW = w;
+    lastH = h;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     composer.setPixelRatio(renderer.getPixelRatio());
     composer.setSize(w, h);
     renderer.getDrawingBufferSize(size);
-    if (gtao) gtao.setSize(Math.floor(size.x / 2), Math.floor(size.y / 2));
+    gtao.setSize(Math.max(1, Math.floor(size.x / 2)), Math.max(1, Math.floor(size.y / 2)));
     bloom.setSize(size.x / 2, size.y / 2);
     grade.uniforms.uAspect.value = w / h;
   }
-  resize(canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight);
+
+  applyQuality = (q: Quality) => {
+    const low = q === 'low';
+    gtao.enabled = !low && params.get('ao') !== '0';
+    renderer.setPixelRatio(Math.min(devicePixelRatio, low ? 1 : 1.5));
+    const sm = low ? 1024 : 2048;
+    if (key.shadow.mapSize.x !== sm) {
+      key.shadow.mapSize.set(sm, sm);
+      key.shadow.map?.dispose();
+      (key.shadow as { map: unknown }).map = null;
+    }
+    // MSAA only when AO is off (AO needs a resolvable depth)
+    const samples = gtao.enabled ? 0 : 4;
+    for (const t of [composer.renderTarget1, composer.renderTarget2]) {
+      if (t.samples !== samples) {
+        t.samples = samples;
+        t.dispose();
+      }
+    }
+    resize(lastW, lastH);
+  };
+  ArtQuality.level = initial;
+  applyQuality(initial);
 
   return {
     renderer,

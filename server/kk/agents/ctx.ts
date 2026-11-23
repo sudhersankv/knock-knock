@@ -22,8 +22,9 @@ export interface RoomCtx {
   feed(side: Side | 'both', item: Omit<FeedItem, 't'>): void;
   chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string): void;
   setChamberBusy(): void;
-  /** Called by a companion that has entered the chamber carrying a message. */
-  chamberArrive(c: Companion): void;
+  /** Moderator inspection of a courier crossing the chamber; returns the words that survive. */
+  inspect(c: Companion, words: string[], from: Side): { words: string[]; reasons: string[] };
+  recordTrip(t: { from: Side; said: string; claimed: string[]; sent: string[]; delivered: string[]; reasons: string[]; agenda: Agenda; reply: boolean; auto: boolean }): void;
   worldEvent(kind: 'rekey' | 'budget' | 'mercy' | 'leak' | 'ban' | 'unban', reason: string, extra?: { lockId?: LockId; budget?: number; word?: string }): void;
   /** Live set of words couriers may not use (shared with every courier's Vocab). */
   banned: Set<string>;

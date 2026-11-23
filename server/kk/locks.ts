@@ -131,6 +131,7 @@ export class LockSet {
       biggestSplit: split ? { question: split.question, you: this.takes[side][split.threadId] ?? 0, them: this.takes[o][split.threadId] ?? 0 } : null,
       readRight: this.status.common === 'open',
       deepRead: this.deepRead,
+      rows: ds.map((d) => ({ question: d.question, you: this.takes[side][d.threadId] ?? 0, them: this.takes[o][d.threadId] ?? 0 })),
     };
   }
 

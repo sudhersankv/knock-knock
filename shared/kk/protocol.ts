@@ -101,6 +101,11 @@ export interface RevealEntry {
   deliveredWords: string[]; // what the other companion delivered
   agendas: [Agenda, Agenda]; // [sender companion, receiver companion]
   reasons: string[];
+  /** Couriers cross: what the courier CLAIMED it would carry (may differ from delivered). */
+  claimed?: string[];
+  /** true = a reply carried back by the visiting courier; auto = it gave up waiting. */
+  reply?: boolean;
+  auto?: boolean;
 }
 export interface FeedItem {
   t: number;

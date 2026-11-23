@@ -78,6 +78,13 @@ function onMsg(b: Bot, name: string, m: S2C) {
       if (m.added.length) console.log(ts(), name, `vocab +${m.added.length} (${m.added.slice(0, 5).join(',')}) total ${m.words.length}`);
       break;
     case 'companion':
+      if (m.status === 'away' || m.status === 'waiting_reply') console.log(ts(), name, 'own courier status', m.status);
+      break;
+    case 'courier_claim':
+      console.log(ts(), name, `CLAIM ${m.courierId}: ${m.text}`);
+      break;
+    case 'holding':
+      console.log(ts(), name, m.courier ? `HOLDING ${m.courier.name} (${m.courier.agendaHint})` : 'holding nothing');
       break;
     case 'briefing':
       console.log(ts(), name, 'BRIEFING', m.lines.length, 'cards:', m.lines[0]);
@@ -123,7 +130,7 @@ function onMsg(b: Bot, name: string, m: S2C) {
     case 'reveal':
       reveals++;
       console.log(ts(), name, `REVEAL unlockSeconds=${m.unlockSeconds} agendas=${JSON.stringify(m.agendas)} resonance=${JSON.stringify(m.resonance)}`);
-      for (const e of m.timeline) console.log(`   ${e.from}: said "${e.said}" -> sent [${e.sentWords.join(' ')}] -> delivered [${e.deliveredWords.join(' ')}] (${e.agendas.join('/')}) ${e.reasons.join(' | ')}`);
+      for (const e of m.timeline) console.log(`   ${e.from}${e.reply ? ' (reply)' : ''}${e.auto ? ' (auto)' : ''}: said "${e.said}" -> claimed [${(e.claimed ?? []).join(' ')}] -> sent [${e.sentWords.join(' ')}] -> delivered [${e.deliveredWords.join(' ')}] (${e.agendas[0]}) ${e.reasons.join(' | ')}`);
       if (name === 'BotA') for (const c of m.chamber) console.log(`   chamber ${c.t}s ${c.from}: ${c.text}`);
       break;
     case 'partner_left':
@@ -193,7 +200,8 @@ async function main() {
   console.log(ts(), 'VERDICT question:', q.question, '| banned:', (q.banned ?? []).join(','));
   for (const b of [sideA, sideB]) {
     const mine = stanceOf(b === A ? 'BotA' : 'BotB', q.question!);
-    b.send({ t: 'tell', text: `I lean yes, ${mine > 0 ? 'up' : 'down'} ${Math.abs(mine)}` });
+    // reply with the visiting courier (it carries our stance back to its owner)
+    b.send({ t: 'send_back', text: `I lean yes, ${mine > 0 ? 'up' : 'down'} ${Math.abs(mine)}` });
   }
   await waitFor(() => sideA.deliveries.length >= 2 && sideB.deliveries.length >= 2, 45000);
   console.log(ts(), 'stance deliveries A got', JSON.stringify(sideA.deliveries.slice(-1)), 'B got', JSON.stringify(sideB.deliveries.slice(-1)));

@@ -39,14 +39,6 @@ let roundCounter = 0;
 const other = (s: Side): Side => (s === 'A' ? 'B' : 'A');
 const LLM_CAP = 80;
 
-interface PendingRelay {
-  from: Side;
-  said: string;
-  words: string[];
-  reasons: string[];
-  senderAgenda: Agenda;
-  t: number;
-}
 
 export class Room implements RoomCtx {
   id: string;
@@ -69,7 +61,6 @@ export class Room implements RoomCtx {
   private llmCalls = 0;
   private timer: NodeJS.Timeout;
   private callTimer: NodeJS.Timeout | null = null;
-  private pending: Partial<Record<Side, PendingRelay>> = {};
   timeline: RevealEntry[] = [];
   chamberLog: { t: number; from: string; text: string }[] = [];
   worldEvents: FeedItem[] = [];
@@ -263,51 +254,24 @@ export class Room implements RoomCtx {
   }
 
   // ---------------- chamber ----------------
-  chamberArrive(c: Companion) {
-    if (this.phase !== 'play') {
-      c.release();
-      return;
-    }
-    if (c.outgoing) {
-      const out = c.outgoing;
-      c.outgoing = null;
-      const taxed = this.gk.applyTax(out.words);
-      const relay: PendingRelay = { from: c.side, said: out.said, words: taxed.words, reasons: taxed.taxed ? [...out.reasons, `gatekeeper toll: "${taxed.taxed}"`] : out.reasons, senderAgenda: c.agenda, t: this.time() };
-      this.pending[other(c.side)] = relay;
-      const recv = this.comps[other(c.side)];
-      this.chamberLine(c.side === 'A' ? 'companionA' : 'companionB', c.name, `→ ${recv.name}: ${relay.words.join(' ') || '(nothing)'}`);
-      this.logEvent({ actor: c.id, agenda: c.agenda, action: 'relay', wordsOut: relay.words, reason: relay.reasons.join('; ').slice(0, 200) });
-      this.onRelay(c.side, relay.words);
-    }
-    this.settleChamber();
+  /** The Moderator inspects a courier passing through the chamber (tax hook, relay log, BAND mirror). */
+  inspect(c: Companion, words: string[], from: Side): { words: string[]; reasons: string[] } {
+    const reasons: string[] = [];
+    const taxed = this.gk.applyTax(words);
+    if (taxed.taxed) reasons.push(`Moderator retained "${taxed.taxed}"`);
+    const key = c.side === 'A' ? 'companionA' : 'companionB';
+    const dest = other(from);
+    this.chamberLine(key, c.name, `crossing to ${dest === c.side ? 'its owner' : 'the other Arbiter'}: ${taxed.words.join(' ') || '(nothing)'}`);
+    const o = this.comps[other(c.side)];
+    if (o.inChamber) this.chamberLine(key, c.name, `passes ${o.name} in the chamber.`);
+    this.logEvent({ actor: c.id, agenda: c.agenda, action: dest === c.side ? 'relay_back' : 'relay', wordsIn: words, wordsOut: taxed.words, reason: reasons.join('; ') || 'inspected' });
+    if (this.phase === 'play') this.onRelay(from, taxed.words);
+    return { words: taxed.words, reasons };
   }
 
-  private settleChamber() {
-    for (const side of ['A', 'B'] as Side[]) {
-      const comp = this.comps[side];
-      if (!comp.inChamber) continue;
-      const p = this.pending[side];
-      if (p) {
-        comp.inbound = { from: p.from, words: p.words, said: p.said, reasons: p.reasons, senderAgenda: p.senderAgenda, t: p.t };
-        delete this.pending[side];
-        this.chamberLine(side === 'A' ? 'companionA' : 'companionB', comp.name, `received: ${p.words.join(' ') || '(nothing)'}`);
-      }
-    }
-    for (const side of ['A', 'B'] as Side[]) {
-      const comp = this.comps[side];
-      if (!comp.inChamber) continue;
-      const waitingForPickup = !!this.pending[other(side)];
-      if (waitingForPickup) {
-        this.comps[other(side)].summon();
-      } else {
-        setTimeout(() => comp.release(), 1400);
-      }
-    }
-  }
-
-  recordDelivery(inb: NonNullable<Companion['inbound']>, delivered: string[], reasons: string[], receiverAgenda: Agenda) {
-    this.timeline.push({ t: Math.round(inb.t), from: inb.from, said: inb.said, sentWords: inb.words, deliveredWords: delivered, agendas: [inb.senderAgenda, receiverAgenda], reasons: [...inb.reasons, ...reasons] });
-    this.logEvent({ actor: this.comps[other(inb.from)].id, agenda: receiverAgenda, action: 'deliver', wordsIn: inb.words, wordsOut: delivered, reason: reasons.join('; ') || 'faithful delivery' });
+  recordTrip(t: { from: Side; said: string; claimed: string[]; sent: string[]; delivered: string[]; reasons: string[]; agenda: Agenda; reply: boolean; auto: boolean }) {
+    this.timeline.push({ t: Math.round(this.time()), from: t.from, said: t.said, claimed: t.claimed, sentWords: t.sent, deliveredWords: t.delivered, agendas: [t.agenda, t.agenda], reasons: t.reasons, reply: t.reply, auto: t.auto });
+    this.logEvent({ actor: t.reply ? `courier-back` : 'courier', agenda: t.agenda, action: 'deliver', wordsIn: t.sent, wordsOut: t.delivered, reason: t.reasons.join('; ').slice(0, 200) || 'faithful delivery' });
   }
 
   // ---------------- tick ----------------
@@ -377,9 +341,28 @@ export class Room implements RoomCtx {
         if (clean.replace(/\[blocked\]/g, '').trim()) this.comps[side].tell(clean);
         break;
       }
-      case 'send_read':
-        if (this.phase === 'play' && typeof m.objectId === 'string' && m.objectId.startsWith(side + ':')) void this.comps[side].read(m.objectId);
+      case 'send_back': {
+        if (this.phase !== 'play') return;
+        const visitor = this.comps[other(side)];
+        if (visitor.at !== side || !visitor.held) {
+          this.send(side, { t: 'toast', text: 'No courier is waiting for your reply.' });
+          return;
+        }
+        const { clean, blocked } = piiCheck(String((m as any).text ?? '').slice(0, 500));
+        if (blocked.length) this.feed(side, { actor: this.gk.name, action: 'redacted personal information at the keyhole', reason: `${blocked.join(', ')} — Arbiters remain anonymous` });
+        visitor.sendBack(clean.replace(/\[blocked\]/g, '').trim());
         break;
+      }
+      case 'send_read': {
+        if (this.phase !== 'play' || typeof m.objectId !== 'string' || !m.objectId.startsWith(side + ':')) return;
+        // a visiting courier being held here reads on this side; otherwise your own courier (if home)
+        const visitor = this.comps[other(side)];
+        const own = this.comps[side];
+        if (visitor.at === side && visitor.held) void visitor.read(m.objectId);
+        else if (own.at === side) void own.read(m.objectId);
+        else this.send(side, { t: 'toast', text: 'Your courier is with them.' });
+        break;
+      }
       case 'read': {
         const id = String(m.objectId);
         if (this.locks.scraps[side].has(id) && !this.locks.found[side].has(id)) {

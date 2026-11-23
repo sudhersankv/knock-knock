@@ -741,3 +741,8 @@ body:has(.itemget, .journal, .modal-wrap, .reveal) #world-ui { opacity: 0; trans
 .voice.y .lean { color: #8fe9de; } .voice.y .lean i { background: var(--teal); }
 .voice.n .lean { color: #ffb0a6; } .voice.n .lean i { background: var(--coral); }
 @media (max-width: 900px), (max-height: 500px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* wire legibility: soft shade like the quest tracker */
+.wire { padding: 8px 10px 10px 40px; margin-right: -10px; background: radial-gradient(130% 120% at 100% 0%, rgba(14, 12, 22, 0.8), rgba(14, 12, 22, 0.5) 50%, transparent 82%); border-radius: 12px; }
+.wl3 { gap: 6px; }
+.wline { line-height: 1.45; text-align: right; }

@@ -259,7 +259,9 @@ const big = (n: number | undefined, label: string) => h('div', { class: 'stat' }
 /** The Commons Record board: the society, the record of past rounds, what the couriers remember (Bruin). */
 export function showRecord(r: RecordData) {
   const s = r.society;
-  const hs = r.history;
+  // keep courier memories only (the stats table also carries rows for humans, doors and rooms)
+  const hs = { ...r.history, agendaLines: r.history.agendaLines.filter((a) => !/^(human|door|room|courier-back)/i.test(a.agenda)).slice(0, 4) };
+  const label = (a: string) => ({ 'comp-a': 'Courier A', 'comp-b': 'Courier B', 'ai-arbiter': 'AI Arbiter', courier: 'Couriers' } as Record<string, string>)[a] ?? a;
   const best = hs.bestUnlockSeconds != null ? `${Math.floor(hs.bestUnlockSeconds / 60)}:${String(Math.round(hs.bestUnlockSeconds % 60)).padStart(2, '0')}` : '—';
   open('reader', [
     h('div', { class: 'kick' }, h('span', { class: 'src' }, 'The Commons Record')),
@@ -269,7 +271,7 @@ export function showRecord(r: RecordData) {
     h('h3', { class: 'rh' }, 'The record'),
     h('div', { class: 'stats small' }, big(hs.rounds, 'rounds before you'), h('div', { class: 'stat' }, h('b', null, `${Math.round(hs.lieRate * 100)}%`), h('span', null, 'of trips bent by a courier')), big(hs.caught, 'times caught'), h('div', { class: 'stat' }, h('b', null, best), h('span', null, 'fastest door'))),
     hs.agendaLines.length ? h('h3', { class: 'rh' }, 'What the couriers remember') : null,
-    hs.agendaLines.length ? h('div', { class: 'mem' }, hs.agendaLines.map((a) => h('div', { class: 'memline' }, h('span', { class: 'ag' }, a.agenda), h('span', { class: 'doc' }, `“${a.line}”`)))) : null,
+    hs.agendaLines.length ? h('div', { class: 'mem' }, hs.agendaLines.map((a) => h('div', { class: 'memline' }, h('span', { class: 'ag' }, label(a.agenda)), h('span', { class: 'doc' }, `“${a.line}”`)))) : null,
     h('div', { class: 'pipe' }, h('i', { class: 'dia fill' }), `Built from Moltbook ${ago(r.pipeline.generatedAt)} by the Bruin pipeline. ${r.pipeline.checksPassed}/${r.pipeline.checksTotal} checks passed. ${r.pipeline.threads} threads.`),
   ]);
 }

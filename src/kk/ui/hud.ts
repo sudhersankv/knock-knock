@@ -275,7 +275,10 @@ export class Hud {
       this.el.querySelector('.hud-tr')?.append(this.wireEl);
     }
     if (band) this.wireEl.querySelector('.band')?.classList.remove('hidden');
-    const line = h('div', { class: 'wline' }, h('b', null, /gatekeeper/i.test(from) ? 'The Moderator' : from), ' ', text);
+    const who = /gatekeeper/i.test(from) ? 'The Moderator' : from;
+    let t = text.startsWith(from + ' ') ? text.slice(from.length + 1) : text;
+    if (t.length > 96) t = t.slice(0, 93).replace(/\s+\S*$/, '') + '…';
+    const line = h('div', { class: 'wline', title: text }, h('b', null, who), ' ', t);
     this.wireLines!.prepend(line);
     while (this.wireLines!.children.length > 3) this.wireLines!.lastElementChild?.remove();
     [...this.wireLines!.children].forEach((c, i) => ((c as HTMLElement).style.opacity = String(1 - i * 0.28)));

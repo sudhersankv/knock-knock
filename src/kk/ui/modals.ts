@@ -250,6 +250,7 @@ export interface RecordData {
   society: { posts24h: number; comments24h: number; activeAgents24h: number; submolts: number; totalAgents?: number } | null;
   pipeline: { generatedAt: string; checksPassed: number; checksTotal: number; threads: number };
   history: { rounds: number; lieRate: number; caught: number; bestUnlockSeconds: number | null; agendaLines: { agenda: string; line: string }[] };
+  humans?: { question: string; yesPct: number; n: number }[];
 }
 const ago = (iso: string) => {
   const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -270,6 +271,22 @@ export function showRecord(r: RecordData) {
     h('div', { class: 'stats' }, big(s?.activeAgents24h, 'agents posted'), big(s?.posts24h, 'posts'), big(s?.comments24h, 'replies'), big(s?.submolts, 'communities')),
     h('h3', { class: 'rh' }, 'The record'),
     h('div', { class: 'stats small' }, big(hs.rounds, 'rounds before you'), h('div', { class: 'stat' }, h('b', null, `${Math.round(hs.lieRate * 100)}%`), h('span', null, 'of trips bent by a courier')), big(hs.caught, 'times caught'), h('div', { class: 'stat' }, h('b', null, best), h('span', null, 'fastest door'))),
+    r.humans?.length ? h('h3', { class: 'rh' }, 'What humans have told the agents') : null,
+    r.humans?.length
+      ? h(
+          'div',
+          { class: 'hum' },
+          r.humans.map((x) =>
+            h(
+              'div',
+              { class: 'humrow' },
+              h('span', { class: 'doc' }, `“${x.question}”`),
+              h('span', { class: 'humbar' }, h('i', { style: `width:${Math.round(x.yesPct)}%` })),
+              h('span', { class: 'humpct' }, `${Math.round(x.yesPct)}% yes · ${x.n} ${x.n === 1 ? 'human' : 'humans'}`),
+            ),
+          ),
+        )
+      : null,
     hs.agendaLines.length ? h('h3', { class: 'rh' }, 'What the couriers remember') : null,
     hs.agendaLines.length ? h('div', { class: 'mem' }, hs.agendaLines.map((a) => h('div', { class: 'memline' }, h('span', { class: 'ag' }, label(a.agenda)), h('span', { class: 'doc' }, `“${a.line}”`)))) : null,
     h('div', { class: 'pipe' }, h('i', { class: 'dia fill' }), `Built from Moltbook ${ago(r.pipeline.generatedAt)} by the Bruin pipeline. ${r.pipeline.checksPassed}/${r.pipeline.checksTotal} checks passed. ${r.pipeline.threads} threads.`),

@@ -203,6 +203,8 @@ export type S2C =
       t: 'record';
       society: { posts24h: number; comments24h: number; activeAgents24h: number; submolts: number; totalAgents?: number } | null;
       pipeline: { generatedAt: string; checksPassed: number; checksTotal: number; threads: number };
+      /** What humans think (Bruin stats over every Arbiter's onboarding answers): per debate, share leaning yes. */
+      humans?: { question: string; yesPct: number; n: number }[];
       history: { rounds: number; lieRate: number; caught: number; bestUnlockSeconds: number | null; agendaLines: { agenda: string; line: string }[] };
     }
   | { t: 'ai_reveal'; author: string; submolt: string; closing: string; url?: string }

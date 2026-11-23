@@ -63,6 +63,8 @@ export interface AgentStats {
   generatedAt: string;
   /** Keyed by agenda (companions) or 'gatekeeper'/'scout'. */
   agents: { key: string; rounds: number; distortionRate: number; caughtCount: number; trades: number; avgUnlockSeconds: number | null; memoryLine: string }[];
+  /** Human opinions gathered by the game: per debate thread, how Arbiters answered in onboarding. */
+  humans?: { threadId: string; question: string; yes: number; no: number; n: number }[];
   leaderboard: { roomId: string; difficulty: string; unlockSeconds: number; at: string }[];
 }
 

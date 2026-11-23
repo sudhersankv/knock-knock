@@ -319,7 +319,7 @@ function wireNet() {
     journal.log.push({ t: Math.max(0, Math.round(performance.now() / 1000 - round.startedAt)), actor: /gatekeeper/i.test(m.from) ? 'The Moderator' : m.from, action: m.text, reason: m.band ? 'via BAND' : '', side: 'C' });
   });
   net.on('record', (m) => {
-    record = { society: m.society, pipeline: m.pipeline, history: m.history };
+    record = { society: m.society, pipeline: m.pipeline, history: m.history, humans: m.humans };
     journal.onRecord = () => record && showRecord(record);
   });
   net.on('agent_says', (m) => {

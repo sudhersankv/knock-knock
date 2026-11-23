@@ -32,6 +32,19 @@ Tone: cozy courtyard on the surface, bureaucratic AI dystopia underneath. The Mo
 3. "Your courier carries your words through the keyhole: a few at a time, and only words it has learned by reading."
 4. "Settle the three petitions. The door opens when both of you agree."
 
+## COURIERS CROSS (latest; overrides "relayed in the chamber")
+- Each Arbiter has ONE courier at the start (theirs is named, has a hidden agenda, tinted their color).
+- Tell your courier a message → it says back what it will carry ("Got it. I'll tell them: 'up three'.") — Faithful says the truth; Jealous/Gossip/Poet may say one thing and deliver another (logged, shown in the Reveal).
+- It walks to the keyhole, squeezes through, passes the chamber (the Moderator inspects it: tax/ban/rekey happen here; still mirrored to BAND), and comes out on the OTHER side. It walks to the other Arbiter and delivers (bubble + voice line), then WAITS by them.
+- The Arbiter now HOLDS the visiting courier. They can: read its message again, ask it to read a thread on their side (it learns words there too), and press "Send back" with a reply. The reply is carried by THAT courier (its agenda bends it), back to its owner. It then returns to normal following its owner.
+- If you hold their courier, they can't send anything until you send it back (show "Your courier is with them" on their HUD). If both send at once, they pass each other in the chamber (both visible as silhouettes).
+- Couriers keep their vocabulary; a courier visiting you may learn words from your side.
+- Reveal shows each round trip: you said → courier claimed → delivered → their reply said → delivered back.
+
+## TUTORIAL (Moderator's orientation, first round only; skippable)
+Guided steps with objective markers, each completes on the real action:
+1. "Walk to the glowing post." (nearest thread) 2. "Read it (E)." 3. "Send your courier to read it (R). Couriers only say words they've read." 4. "Tell your courier something (C to talk, Enter to type). Opinion words are banned." 5. Watch it cross. 6. "A courier knocks. Read its message, then send it back with a reply." 7. "Now settle the petitions. Press J for the Journal." Landing has a "How to play" card: goal + 5 rules + controls (keyboard and touch).
+
 ## FINAL DESIGN (hybrid) — read this first
 - Petition I (The Lost Word) and Petition II (The Census) stay EXACTLY as in "Puzzles (v1)" below, including shards.
 - Petition III (The Verdict) becomes "Read the Stranger" as described in the v2 section below, applied to ONE debate (the pair's most-split or a random one of their 5): both see the same real debate question (no redaction needed for the single-debate version); each predicts the other's stance (lean yes / lean no + optional strength); settles when BOTH predictions are right. Banned opinion words, courier bending, Moderator banning an extra word mid-round, mercy after 2 wrong tries — all apply.

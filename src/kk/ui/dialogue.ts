@@ -2,14 +2,15 @@
 import { h, ui } from './dom';
 import { dia, kc, rule } from './hud';
 
-let open: { close: () => void; advance: () => void } | null = null;
+let open: { close: () => void; advance: () => void; passive?: boolean } | null = null;
 
+/** True when a blocking dialogue (briefing, item-get) is up. Passive lines (claims, tutorial hints) never capture input. */
 export function dialogueOpen() {
-  return !!open;
+  return !!open && !open.passive;
 }
 /** Advance (E / Enter / Space / tap). Returns true if a dialogue consumed it. */
 export function dialogueAdvance() {
-  if (!open) return false;
+  if (!open || open.passive) return false;
   open.advance();
   return true;
 }
@@ -60,6 +61,7 @@ export function showDialogue(name: string, lines: string[], instant = false, aut
     ui().append(host);
     render();
     if (autoCloseMs) {
+      open.passive = true;
       host.classList.add('passive');
       setTimeout(() => open?.close === close && close(), autoCloseMs);
     }

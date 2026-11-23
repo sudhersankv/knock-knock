@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       // Single origin for players on the LAN: the browser talks to /ws on the Vite port.
       '/ws': { target: `ws://localhost:${NET_PORT}`, ws: true },
+      '/stt': { target: `http://localhost:${NET_PORT}` },
     },
   },
 });

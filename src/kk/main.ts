@@ -287,7 +287,8 @@ function wireNet() {
   });
   net.on('quest', (m) => {
     if (!round) return void (pending.quest = m);
-    if (tut.active) return void (questHeld = m);
+    questHeld = m;
+    if (tut.active) return;
     round.quest = m.steps;
     hud?.setQuest(m.title, m.steps);
     const keep = new Set<string>();
@@ -657,6 +658,7 @@ function startTalk() {
 async function stopTalk() {
   if (!pttDown) return;
   pttDown = false;
+  hud?.ptt('listen', 'Transcribing…');
   const text = await voice.stop();
   hud?.ptt('off');
   if (text) tell(text);
@@ -965,4 +967,4 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
 }
 
 // dev hook for automated browser checks
-(window as unknown as { __kk: unknown }).__kk = { net, openTerminal, journal, get round() { return round; } };
+(window as unknown as { __kk: unknown }).__kk = { net, openTerminal, journal, me, tut, get holding() { return holding; }, get round() { return round; } };

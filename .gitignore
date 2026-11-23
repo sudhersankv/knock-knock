@@ -18,3 +18,4 @@ logs/queriesdata/band_agents.json
 logs/
 shots/
 data/raw/
+!.env.example

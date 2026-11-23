@@ -196,8 +196,10 @@ export class Sfx {
 
 // ---- TTS for agent lines (browser speechSynthesis fallback; distinct voice per speaker) ----
 const voiceCache = new Map<string, { voice: SpeechSynthesisVoice | null; pitch: number; rate: number }>();
+const SPEAK_ENABLED = false as boolean;
 export function speak(speakerKey: string, text: string, muted: boolean) {
-  if (muted || !('speechSynthesis' in window) || !text) return;
+  // AI voice output disabled by design: only humans speak (push-to-talk in, WebRTC call).
+  if (!SPEAK_ENABLED || muted || !('speechSynthesis' in window) || !text) return;
   let v = voiceCache.get(speakerKey);
   if (!v) {
     const voices = speechSynthesis.getVoices().filter((x) => x.lang.startsWith('en'));

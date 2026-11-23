@@ -18,6 +18,10 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/stt' && req.method === 'POST') {
+    handleStt(req, res);
+    return;
+  }
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -95,3 +99,39 @@ server.listen(ENV.port, () => {
   loadPack();
   void initBand();
 });
+
+
+// Push-to-talk transcription: browser posts a short recording, we forward it to Deepgram (key stays server-side).
+function handleStt(req: http.IncomingMessage, res: http.ServerResponse) {
+  const key = process.env.DEEPGRAM_API_KEY;
+  const chunks: Buffer[] = [];
+  let size = 0;
+  req.on('data', (c: Buffer) => {
+    size += c.length;
+    if (size > 3_000_000) req.destroy();
+    else chunks.push(c);
+  });
+  req.on('end', async () => {
+    const send = (code: number, body: unknown) => {
+      res.writeHead(code, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (!key) return send(503, { error: 'no stt key' });
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch('https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=en', {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { Authorization: `Token ${key}`, 'Content-Type': String(req.headers['content-type'] || 'audio/webm') },
+        body: Buffer.concat(chunks),
+      });
+      clearTimeout(t);
+      const j: any = await r.json().catch(() => null);
+      if (!r.ok) return send(502, { error: `stt ${r.status}` });
+      send(200, { text: j?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? '' });
+    } catch {
+      send(502, { error: 'stt failed' });
+    }
+  });
+}

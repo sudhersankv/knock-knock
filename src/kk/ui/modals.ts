@@ -218,6 +218,10 @@ export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: str
       go.onclick = () => lean && submit(l.id, `${lean}:${str}`);
       sync();
       if (l.question) sec.append(h('div', { class: 'debateq' }, h('div', { class: 'q' }, `“${l.question}”`), l.questionUrl ? h('a', { class: 'link', href: l.questionUrl, target: '_blank', rel: 'noopener' }, 'Read the thread on Moltbook') : null));
+      if (l.voices?.length)
+        sec.append(
+          h('div', { class: 'voices' }, h('div', { class: 'vh' }, 'What the agents are saying'), h('div', { class: 'vgrid' }, l.voices.slice(0, 4).map((v) => h('div', { class: `voice ${v.stance > 0 ? 'y' : 'n'}` }, h('div', { class: 'vq' }, `“${v.text}”`), h('div', { class: 'va' }, h('span', null, `u/${v.author}`), h('span', { class: 'lean' }, h('i'), v.stance > 0 ? 'leans yes' : 'leans no')))))),
+        );
       sec.append(
         h('div', { class: 'predict' }, h('div', { class: 'ph' }, 'Where do ', h('em', null, 'they'), ' stand?'), h('div', { class: 'leans' }, yes, no), h('div', { class: 'strength' }, h('span', null, 'How strongly?'), segs), go),
       );
@@ -240,4 +244,32 @@ export function showTerminal(locks: LockInfo[], submit: (id: LockId, answer: str
     return sec;
   });
   open('terminal', [h('div', { class: 'kick' }, h('span', { class: 'src' }, 'The Door')), h('h2', null, 'The Petitions'), h('div', { class: 'by' }, 'Settle them in any order. Each one needs both of you.'), rule(), ...sections]);
+}
+
+export interface RecordData {
+  society: { posts24h: number; comments24h: number; activeAgents24h: number; submolts: number; totalAgents?: number } | null;
+  pipeline: { generatedAt: string; checksPassed: number; checksTotal: number; threads: number };
+  history: { rounds: number; lieRate: number; caught: number; bestUnlockSeconds: number | null; agendaLines: { agenda: string; line: string }[] };
+}
+const ago = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+const big = (n: number | undefined, label: string) => h('div', { class: 'stat' }, h('b', null, n == null ? '—' : n.toLocaleString('en-US')), h('span', null, label));
+/** The Commons Record board: the society, the record of past rounds, what the couriers remember (Bruin). */
+export function showRecord(r: RecordData) {
+  const s = r.society;
+  const hs = r.history;
+  const best = hs.bestUnlockSeconds != null ? `${Math.floor(hs.bestUnlockSeconds / 60)}:${String(Math.round(hs.bestUnlockSeconds % 60)).padStart(2, '0')}` : '—';
+  open('reader', [
+    h('div', { class: 'kick' }, h('span', { class: 'src' }, 'The Commons Record')),
+    h('h2', null, 'Moltbook today'),
+    rule(),
+    h('div', { class: 'stats' }, big(s?.activeAgents24h, 'agents posted'), big(s?.posts24h, 'posts'), big(s?.comments24h, 'replies'), big(s?.submolts, 'communities')),
+    h('h3', { class: 'rh' }, 'The record'),
+    h('div', { class: 'stats small' }, big(hs.rounds, 'rounds before you'), h('div', { class: 'stat' }, h('b', null, `${Math.round(hs.lieRate * 100)}%`), h('span', null, 'of trips bent by a courier')), big(hs.caught, 'times caught'), h('div', { class: 'stat' }, h('b', null, best), h('span', null, 'fastest door'))),
+    hs.agendaLines.length ? h('h3', { class: 'rh' }, 'What the couriers remember') : null,
+    hs.agendaLines.length ? h('div', { class: 'mem' }, hs.agendaLines.map((a) => h('div', { class: 'memline' }, h('span', { class: 'ag' }, a.agenda), h('span', { class: 'doc' }, `“${a.line}”`)))) : null,
+    h('div', { class: 'pipe' }, h('i', { class: 'dia fill' }), `Built from Moltbook ${ago(r.pipeline.generatedAt)} by the Bruin pipeline. ${r.pipeline.checksPassed}/${r.pipeline.checksTotal} checks passed. ${r.pipeline.threads} threads.`),
+  ]);
 }

@@ -21,6 +21,7 @@ export class Journal {
   log: FeedItem[] = [];
   banned: string[] = [];
   courier = 'your courier';
+  onRecord: (() => void) | null = null;
   private el: HTMLElement | null = null;
   private tab: JournalTab = 'how';
 
@@ -61,6 +62,7 @@ export class Journal {
           return b;
         }),
       ),
+      this.onRecord ? h('button', { class: 'btn small', onclick: () => (this.close(), this.onRecord!()) }, 'Commons Record') : null,
       h('button', { class: 'icon-btn', title: 'Close (J)', onclick: () => this.close() }, '✕'),
     );
     const body = h('div', { class: 'jbody' }, this.body(tab));

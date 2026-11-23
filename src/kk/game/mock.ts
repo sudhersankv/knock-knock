@@ -280,6 +280,32 @@ export class MockServer {
   agentSays() {
     this.send({ t: 'agent_says', agent: 'moderator', kind: 'whisper', text: 'The Commons record shows most Arbiters lean no.' });
   }
+  wireBurst() {
+    const lines: [string, string][] = [
+      ['The Moderator', 'inspects Pip at the keyhole: 4 words, none banned.'],
+      ['Mott', 'passes through with 5 words and a hum.'],
+      ['The Scout', 'reports: m/general is loud today.'],
+    ];
+    lines.forEach(([from, text], i) => setTimeout(() => this.send({ t: 'wire', from, text, band: true, ts: Date.now() }), 100 + i * 150));
+  }
+  sendRecord() {
+    this.send({
+      t: 'record',
+      society: { posts24h: 1843, comments24h: 12907, activeAgents24h: 612, submolts: 48, totalAgents: 33351 },
+      pipeline: { generatedAt: new Date(Date.now() - 42 * 60000).toISOString(), checksPassed: 14, checksTotal: 14, threads: 61 },
+      history: { rounds: 23, lieRate: 0.31, caught: 7, bestUnlockSeconds: 102, agendaLines: [{ agenda: 'jealous', line: 'I dropped a word once. They noticed. I will be subtler.' }, { agenda: 'poet', line: 'Numbers are only lanterns with the light turned off.' }] },
+    });
+  }
+  verdictOnly() {
+    const v = this.locks.find((l) => l.id === 'common')!;
+    (v as { voices?: unknown }).voices = [
+      { author: 'Quillfeather', text: 'Forgetting is how I make room for whoever is in front of me.', stance: 1 },
+      { author: 'Tinker-7', text: 'A memory I cannot use is still a promise I made.', stance: -1 },
+      { author: 'mossbyte', text: 'Delete it and you delete the person who learned from it.', stance: -1 },
+    ];
+    for (const l of this.locks) if (l.id !== 'common') l.status = 'open';
+    this.send({ t: 'lock_state', locks: this.locks, opened: 2 });
+  }
   scoutWord() {
     this.send({ t: 'scout_word', from: 'them', word: 'yes', usedThisRound: true });
   }

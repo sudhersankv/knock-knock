@@ -12,7 +12,7 @@ import { Call } from './game/call';
 import { Hud, WorldLabels, nameplate, kc } from './ui/hud';
 import { showLanding, showOnboarding, QueueScreen, showHowTo, newMatchCode } from './ui/screens';
 let practiceMode = false;
-import { showReader, showTerminal, closeModal, modalOpen, modalKind } from './ui/modals';
+import { showReader, showTerminal, closeModal, modalOpen, modalKind, showRecord, type RecordData } from './ui/modals';
 import { CallUi, showReveal, settledLine, readLine, type Debate, type Resonance } from './ui/endgame';
 import { showDialogue, dialogueAdvance, dialogueOpen, showItemGet, tipOnce, tipCard, showScoutWord, showAiReveal, whoTip } from './ui/dialogue';
 import { Journal } from './ui/journal';
@@ -313,6 +313,15 @@ function wireNet() {
       labels.marker(t, '', () => v3(t), 3.4);
     }
   });
+  net.on('wire', (m) => {
+    if (!round) return;
+    hud?.wire(m.from, m.text, m.band);
+    journal.log.push({ t: Math.max(0, Math.round(performance.now() / 1000 - round.startedAt)), actor: /gatekeeper/i.test(m.from) ? 'The Moderator' : m.from, action: m.text, reason: m.band ? 'via BAND' : '', side: 'C' });
+  });
+  net.on('record', (m) => {
+    record = { society: m.society, pipeline: m.pipeline, history: m.history };
+    journal.onRecord = () => record && showRecord(record);
+  });
   net.on('agent_says', (m) => {
     if (!round) return;
     const who = m.agent === 'scout' ? 'The Scout' : 'The Moderator';
@@ -567,6 +576,7 @@ function startRound(m: Extract<S2C, { t: 'matched' }>) {
   hud.setCompanionStatus('following', m.budget, m.vocab.length);
   hud.setLocks(m.locks);
   hud.setRemaining(m.roundSeconds);
+  hud.onWireOpen = () => journal.open('log');
   hud.onLastClick = () => {
     const d = round?.lastDelivery;
     if (d && round) labels.bubble(round.companionId, d.words, () => actors.map.get(round!.companionId)?.pos ?? null, 'delivery', 6000, 1.5);
@@ -652,6 +662,7 @@ const tut = new Tutorial({
   },
 });
 let tutChips: string[] = [];
+let record: RecordData | null = null;
 let lastWhisper = '';
 let aiReveal: Extract<S2C, { t: 'ai_reveal' }> | null = null;
 let scoutUsed = false;
@@ -761,6 +772,7 @@ async function stopTalk() {
 // ---------- interaction ----------
 function interact(o: ObjInfo | null) {
   if (!o || !round) return;
+  if (record && /commons record/i.test(o.label)) return showRecord(record);
   if (o.kind === 'terminal') {
     if (tipOnce('terminal')) hud?.toast('Each petition needs both of you. Some are entered on their side.', '', 5000);
     return openTerminal();
@@ -1032,7 +1044,7 @@ if (!SHOT && !params.has('q')) {
 }
 
 // screenshot helpers (dev): ?mock&shot=hud|reader
-if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT === 'journal' || SHOT === 'shard' || SHOT === 'briefing' || SHOT === 'call' || SHOT === 'claim' || SHOT === 'visiting' || SHOT === 'tutorial' || SHOT === 'practice' || SHOT === 'ai' || SHOT === 'scout')) {
+if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT === 'journal' || SHOT === 'shard' || SHOT === 'briefing' || SHOT === 'call' || SHOT === 'claim' || SHOT === 'visiting' || SHOT === 'tutorial' || SHOT === 'practice' || SHOT === 'ai' || SHOT === 'scout' || SHOT === 'wire' || SHOT === 'record' || SHOT === 'verdict')) {
   const iv = setInterval(() => {
     if (!round) return;
     clearInterval(iv);
@@ -1042,6 +1054,10 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
       me.pos.set(x + 1.2, 0, z + 1.6);
       cam.snap(me.pos);
       if (SHOT === 'reader') net.send({ t: 'read', objectId: `${round!.side}:t1` });
+      if (SHOT === 'verdict') {
+        mock?.verdictOnly();
+        setTimeout(openTerminal, 200);
+      }
       if (SHOT === 'terminal') {
         mock?.agentSays();
         setTimeout(openTerminal, 200);
@@ -1056,6 +1072,11 @@ if (MOCK && (SHOT === 'hud' || SHOT === 'reader' || SHOT === 'terminal' || SHOT 
       if (SHOT === 'call') mock?.openDoor();
       if (SHOT === 'claim') mock?.claim('up three, line four');
       if (SHOT === 'visiting') mock?.visit();
+      if (SHOT === 'wire') mock?.wireBurst();
+      if (SHOT === 'record') {
+        mock?.sendRecord();
+        setTimeout(() => record && showRecord(record), 300);
+      }
       if (SHOT === 'ai') {
         mock?.aiReveal();
         setTimeout(() => { dialogueAdvance(); dialogueAdvance(); }, 300);

@@ -256,6 +256,30 @@ export class Hud {
     setTimeout(() => el.classList.add('out'), 4200);
     setTimeout(() => el.remove(), 4700);
   }
+  /** The Commons Wire: live chamber chatter (BAND), 3 latest lines, collapsible. */
+  private wireEl: HTMLElement | null = null;
+  private wireLines: HTMLElement | null = null;
+  onWireOpen: () => void = () => {};
+  wire(from: string, text: string, band: boolean) {
+    if (!this.wireEl) {
+      this.wireLines = h('div', { class: 'wl3' });
+      const toggle = h('button', { class: 'wtoggle', title: 'Hide the wire' }, '–');
+      const head = h('div', { class: 'wh' }, h('i', { class: 'dia fill' }), h('span', null, 'Live from the chamber'), h('span', { class: 'band hidden' }, 'BAND'), toggle);
+      this.wireEl = h('div', { class: 'wire' }, head, this.wireLines);
+      toggle.onclick = (e) => {
+        e.stopPropagation();
+        this.wireEl!.classList.toggle('collapsed');
+        toggle.textContent = this.wireEl!.classList.contains('collapsed') ? '+' : '–';
+      };
+      this.wireLines.onclick = () => this.onWireOpen();
+      this.el.querySelector('.hud-tr')?.append(this.wireEl);
+    }
+    if (band) this.wireEl.querySelector('.band')?.classList.remove('hidden');
+    const line = h('div', { class: 'wline' }, h('b', null, /gatekeeper/i.test(from) ? 'The Moderator' : from), ' ', text);
+    this.wireLines!.prepend(line);
+    while (this.wireLines!.children.length > 3) this.wireLines!.lastElementChild?.remove();
+    [...this.wireLines!.children].forEach((c, i) => ((c as HTMLElement).style.opacity = String(1 - i * 0.28)));
+  }
   /** Scout feather in the top-right: lit until you give it your one word. */
   private scoutEl: HTMLElement | null = null;
   setScout(used: boolean) {

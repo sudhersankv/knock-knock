@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knock Knock — art viewer</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1e1b2e; overflow: hidden; }
+      canvas#game { display: block; width: 100vw; height: 100vh; }
+      #help { position: fixed; left: 12px; bottom: 10px; font: 12px/1.4 monospace; color: #cfc8e8; opacity: 0.7; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="help">WASD move · O door · +/- budget · R rekey · C chamber · 1/2 restore · K keyhole · H highlight · L locks · Q side · F dust · wheel zoom</div>
+    <script type="module" src="/src/kk/art/viewer.ts"></script>
+  </body>
+</html>

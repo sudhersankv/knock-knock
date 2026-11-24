@@ -21,7 +21,7 @@ columns:
       - name: non_negative
 @bruin */
 with e as (
-  select *, case when lower(actor) like 'companion%' and agenda is not null then lower(agenda) else lower(actor) end as agent_key
+  select *, case when (lower(actor) like 'comp-%' or lower(actor) like 'companion%') and agenda is not null then lower(agenda) else lower(actor) end as agent_key
   from stats.events
 ), unlocks as (
   select room_id, round, max(unlock_seconds) as unlock_seconds from stats.events where action = 'unlock' group by 1, 2

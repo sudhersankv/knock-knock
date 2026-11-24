@@ -49,6 +49,10 @@ custom_checks:
       select count(*) from game.debate_voices
       where length(text) > 221 or stance not in (1, -1) or regexp_matches(text, '[\w.+-]+@[\w-]+\.[a-z]{2,}|https?://|www\.')
     value: 0
+  - name: agent_tally_consistent
+    description: Each debate's agent tally counts at least one classified reply and yes + no <= n.
+    query: select count(*) from game.debates where tally_n <= 0 or tally_yes + tally_no > tally_n or tally_yes < 0 or tally_no < 0
+    value: 0
   - name: society_numbers_positive
     query: select count(*) from raw.society where posts24h > 0 and comments24h > 0 and activeAgents24h > 0 and submolts > 0
     value: 1

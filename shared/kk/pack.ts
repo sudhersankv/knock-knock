@@ -44,6 +44,8 @@ export interface PackDebate {
   theme?: string;
   /** 2-4 real agent replies from the thread, classified by stance (yes = +1, no = -1). PII-filtered, <= 220 chars. */
   voices?: { author: string; text: string; stance: 1 | -1 }[];
+  /** All classified replies in the thread: how the agents lean (n = replies classified). */
+  agentTally?: { yes: number; no: number; n: number };
 }
 export interface RoundPack {
   generatedAt: string;

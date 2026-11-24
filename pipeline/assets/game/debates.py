@@ -207,7 +207,12 @@ if voice_rows:
 print(f"voices={len(voice_rows)}")
 
 con.execute("create schema if not exists game")
-con.execute("create or replace table game.debates (thread_id varchar, question varchar, keyword varchar, split_score double, theme varchar, philosophical boolean)")
-con.executemany("insert into game.debates values (?,?,?,?,?,?)", rows)
+# Full agent tally per debate: every classified reply, not just the quoted voices.
+def tally(tid):
+    vals = [v for (t, _), v in st.items() if t == tid]
+    return sum(1 for v in vals if v == 1), sum(1 for v in vals if v == -1), len(vals)
+rows = [r + tally(r[0]) for r in rows]
+con.execute("create or replace table game.debates (thread_id varchar, question varchar, keyword varchar, split_score double, theme varchar, philosophical boolean, tally_yes integer, tally_no integer, tally_n integer)")
+con.executemany("insert into game.debates values (?,?,?,?,?,?,?,?,?)", rows)
 con.close()
 print(f"debates={len(rows)} (added {len(add_threads)} debate threads)")

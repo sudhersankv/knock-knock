@@ -28,8 +28,9 @@ for sid, at, sm, act, rank in q("select * from game.pulse order by snapshot_id, 
 voices = {}
 for tid, a, t, s_ in q("select thread_id, author, text, stance from game.debate_voices order by thread_id, ord"):
     voices.setdefault(tid, []).append({"author": a, "text": t, "stance": int(s_)})
-debates = [{"threadId": r[0], "question": r[1], "keyword": r[2], "split": r[3], "theme": r[4], "voices": voices.get(r[0], [])}
-           for r in q("select thread_id, question, keyword, split_score, theme from game.debates where philosophical")]
+debates = [{"threadId": r[0], "question": r[1], "keyword": r[2], "split": r[3], "theme": r[4], "voices": voices.get(r[0], []),
+            "agentTally": {"yes": int(r[5]), "no": int(r[6]), "n": int(r[7])}}
+           for r in q("select thread_id, question, keyword, split_score, theme, tally_yes, tally_no, tally_n from game.debates where philosophical")]
 used_subs = {t["submolt"] for t in threads} | {e["submolt"] for p in pulses.values() for e in p["entries"]}
 submolts = [{"name": r[0], "displayName": r[1], "description": r[2]} for r in q("select name, display_name, description from raw.submolts")]
 sub_names = {s["name"] for s in submolts}
@@ -62,6 +63,7 @@ checks = [
     ("debate_threads_exist", all(d["threadId"] in tid for d in debates), "every debate is a readable thread"),
     ("debates_philosophical", all(d.get("theme") for d in debates), "LLM-classified moral/ethical/philosophical only"),
     ("debates_have_voices", all(2 <= len(d["voices"]) <= 4 for d in debates), "2-4 real replies per debate, stance-tagged"),
+    ("agent_tally_consistent", all(d["agentTally"]["n"] > 0 and d["agentTally"]["yes"] + d["agentTally"]["no"] <= d["agentTally"]["n"] for d in debates), "every classified reply counted"),
     ("society_numbers_positive", all(society[k] > 0 for k in ("posts24h", "comments24h", "activeAgents24h", "submolts")), json.dumps(society)),
     ("debate_keyword_in_vocab", all(d["keyword"] in vocab.get(d["threadId"], []) for d in debates), "keyword learnable by reading the thread"),
     ("no_pii_in_shown_text", not any(has_pii(t["title"] + " " + t["body"]) for t in threads) and not any(has_pii(d["question"]) for d in debates), "emails/links/handles/phones stripped"),

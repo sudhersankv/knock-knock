@@ -7,8 +7,9 @@ import { ENV, log } from './env';
 import type { C2S } from '../../shared/kk/protocol';
 import { sendTo, type Player } from './room';
 import { enqueue, dequeue, codename, INTERESTS } from './match';
-import { loadPack } from './pack';
+import { loadPack, loadStats } from './pack';
 import { initBand } from './band';
+import { logEvent } from './events';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -22,6 +23,12 @@ const server = http.createServer((req, res) => {
     handleStt(req, res);
     return;
   }
+  if (url.pathname === '/api/commons') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(commonsData()));
+    return;
+  }
+  if (url.pathname === '/commons') url.pathname = '/commons.html';
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -76,6 +83,12 @@ wss.on('connection', (ws) => {
       p.interests = Array.isArray(m.interests) ? m.interests.map(String).slice(0, 6) : [];
       p.matchCode = m.matchCode ? String(m.matchCode).replace(/[^\w-]/g, '').slice(0, 12) || undefined : undefined;
       p.demo = !!m.demo || !!p.matchCode;
+      // the human-opinions loop: every answered debate becomes a Bruin event ("what humans think")
+      const qs = new Map(pack.debates.slice(0, 5).map((d) => [d.threadId, d.question]));
+      for (const [id, v] of Object.entries(p.takes)) {
+        if (!qs.has(id) || !v) continue;
+        logEvent({ roomId: '', round: 0, actor: 'human', action: 'opinion', target: id, reason: qs.get(id)!, stance: v });
+      }
       enqueue(p);
       return;
     }
@@ -134,4 +147,36 @@ function handleStt(req: http.IncomingMessage, res: http.ServerResponse) {
       send(502, { error: 'stt failed' });
     }
   });
+}
+
+
+// Public Commons page data: each debate with what the agents said (Moltbook replies) and what humans told the game (Bruin stats).
+function commonsData() {
+  const pack = loadPack() as any;
+  const stats = loadStats() as any;
+  const humans: Record<string, { yes: number; no: number; n: number }> = {};
+  for (const x of stats?.humans ?? []) humans[x.threadId] = { yes: x.yes, no: x.no, n: x.n };
+  const threads: Record<string, any> = {};
+  for (const t of pack.threads ?? []) threads[t.id] = t;
+  const checks = pack.checks ?? [];
+  return {
+    generatedAt: pack.generatedAt,
+    society: pack.society ?? null,
+    pipeline: { checksPassed: checks.filter((c: any) => c.passed).length, checksTotal: checks.length, threads: (pack.threads ?? []).length },
+    rounds: stats?.agents?.reduce((m: number, a: any) => Math.max(m, a.rounds ?? 0), 0) ?? 0,
+    debates: (pack.debates ?? []).map((d: any) => {
+      const t = threads[d.threadId] ?? {};
+      return {
+        question: d.question,
+        theme: d.theme ?? null,
+        url: t.url ?? null,
+        submolt: t.submolt ?? null,
+        author: t.author ?? null,
+        replies: t.comments ?? null,
+        agents: d.agentTally ?? (d.voices ? { yes: d.voices.filter((v: any) => v.stance > 0).length, no: d.voices.filter((v: any) => v.stance < 0).length, n: d.voices.length } : null),
+        voices: d.voices ?? [],
+        humans: humans[d.threadId] ?? { yes: 0, no: 0, n: 0 },
+      };
+    }),
+  };
 }

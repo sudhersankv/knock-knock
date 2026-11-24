@@ -3,6 +3,7 @@ import type { RoundPack, PackCodex, PackPulse, PackDebate, PackThread } from '..
 import type { LockId, LockInfo, LockStatus, ObjContent, ObjInfo } from '../../shared/kk/protocol';
 import { THREAD_SLOTS, SCRAP_SLOTS, objectId, objectPos, type Side } from '../../shared/kk/layout';
 import { tokenize } from './validator';
+import { STARTER_VOCAB } from '../../shared/kk/pack';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 const RUNES = ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ', 'ᚺ', 'ᚾ', 'ᛁ', 'ᛃ'];
@@ -54,6 +55,9 @@ export class LockSet {
   /** Side A's binding of the codex (shuffled for medium/hard). */
   codexOrderA: number[] = [];
   legendShown = '';
+  /** Petition I (symmetric): each side's own hidden word on the shared stone. */
+  secrets!: Record<Side, { word: string; line: number; wordNo: number }>;
+  codexDone: Record<Side, boolean> = { A: false, B: false };
   scraps: Record<Side, Map<string, Scrap>> = { A: new Map(), B: new Map() };
   found: Record<Side, Set<string>> = { A: new Set(), B: new Set() };
   settledDebate: string | null = null;
@@ -140,16 +144,52 @@ export class LockSet {
     const pool = this.pack.codexes.filter((c) => c.id !== exclude);
     const byDiff = pool.filter((c) => c.difficulty === want);
     this.codex = pick(byDiff.length ? byDiff : pool.length ? pool : this.pack.codexes);
-    const idx = this.codex.lines.map((_, i) => i);
-    this.codexOrderA = this.difficulty === 'easy' ? idx : shuffle(idx);
+    this.codexOrderA = this.codex.lines.map((_, i) => i); // same binding on both stones (no shuffle)
+    this.pickSecrets();
+    this.codexDone = { A: false, B: false };
+  }
+  /** Two different hidden words from the post: >=6 letters, occurring exactly once, not starter vocab. */
+  pickSecrets() {
+    const clean = (w: string) => w.toLowerCase().replace(/[^a-z]/g, '');
+    const counts = new Map<string, number>();
+    const pos = new Map<string, { line: number; wordNo: number }>();
+    this.codex.lines.forEach((ln, li) =>
+      ln.split(/\s+/).forEach((raw, wi) => {
+        const w = clean(raw);
+        if (!w) return;
+        counts.set(w, (counts.get(w) ?? 0) + 1);
+        if (!pos.has(w)) pos.set(w, { line: li + 1, wordNo: wi + 1 });
+      }),
+    );
+    const starter = new Set(STARTER_VOCAB);
+    let cands = [...counts.entries()].filter(([w, n]) => n === 1 && w.length >= 6 && !starter.has(w)).map(([w]) => w);
+    if (cands.length < 2) cands = [...counts.keys()].filter((w) => w.length >= 4 && !starter.has(w));
+    const pw = clean(this.codex.passWord);
+    const pool = shuffle(cands.filter((w) => w !== pw));
+    const first = cands.includes(pw) ? pw : pool.shift()!;
+    const second = pool.find((w) => w !== first) ?? first;
+    const [a, b] = Math.random() < 0.5 ? [first, second] : [second, first];
+    this.secrets = { A: { word: a, ...pos.get(a)! }, B: { word: b, ...pos.get(b)! } };
+  }
+  /** Words couriers may never carry (both hidden words). */
+  secretWords(): string[] {
+    return [this.secrets.A.word, this.secrets.B.word];
+  }
+  /** Petition I: `side` types the OTHER side's hidden word. */
+  submitCodex(side: Side, answer: string): 'wait' | 'open' | 'fail' {
+    const other: Side = side === 'A' ? 'B' : 'A';
+    const ok = String(answer).trim().toLowerCase().replace(/[^a-z]/g, '') === this.secrets[other].word;
+    if (!ok) return 'fail';
+    this.codexDone[side] = true;
+    return this.codexDone.A && this.codexDone.B ? 'open' : 'wait';
   }
   /** Words a courier learns by reading the Codex: every word except the redacted pass word. */
   codexWords(): string[] {
-    const pw = this.codex.passWord.toLowerCase();
-    return [...new Set(tokenize(this.codex.lines.join(' ')).filter((w) => w.length >= 3 && w !== pw && !/^\d+$/.test(w)))];
+    const banned = new Set(this.secretWords());
+    return [...new Set(tokenize(this.codex.lines.join(' ')).filter((w) => w.length >= 3 && !banned.has(w) && !/^\d+$/.test(w)))];
   }
   pickPulse() {
-    const n = this.difficulty === 'hard' ? 4 : 3;
+    const n = 3;
     const p = pick(this.pack.pulses);
     const entries = [...p.entries].sort((a, b) => a.rank - b.rank);
     // choose n with distinct ranks; keep the order unambiguous (pipeline guarantees >=15% gaps for adjacent entries)
@@ -198,11 +238,8 @@ export class LockSet {
     for (const side of ['A', 'B'] as Side[]) {
       const list: Omit<Scrap, 'id'>[] = [];
       if (side === 'A') {
-        const missing = this.pulse.entries.map((e) => e.submolt).filter((s) => s !== this.legendShown);
-        const half = Math.ceil(missing.length / 2);
-        const chunks = missing.length > 2 ? [missing.slice(0, half), missing.slice(half)] : missing.map((m) => [m]);
-        chunks.forEach((c, i) => list.push({ title: `Eroded legend, fragment ${i + 1}`, from: 'a chip of the legend board', lockId: 'pulse', legend: c }));
-        list.push({ title: 'A note on bindings', from: 'a page torn from the Codex', lockId: 'codex', text: this.difficulty === 'easy' ? 'Both copies are bound true. Count lines from the top.' : 'Their copy is bound true. Yours is not. Count by what you can both see.' });
+        list.push({ title: 'A census clerk\'s note', from: 'pinned to the notice board', lockId: 'pulse', text: 'The Census changes every day. Ask, don\'t guess.' });
+        list.push({ title: 'A note on the stones', from: 'a page torn from the Codex', lockId: 'codex', text: 'Both stones are bound the same. Count lines from the top, words from the left.' });
       } else {
         list.push({ title: 'Courier rule', from: 'scratched on the keyhole frame', lockId: 'codex', text: 'Numbers always pass the keyhole.' });
       }
@@ -221,11 +258,13 @@ export class LockSet {
     return sc.text ?? '';
   }
   scrapTeaches(sc: Scrap): string[] {
-    const pw = this.codex.passWord.toLowerCase();
+    const banned = new Set(this.secretWords());
+    const pw = '';
+    void pw;
     // district names are always taught whole (even short ones like "ai"): that is what lets couriers name them
-    if (sc.legend) return [...new Set(sc.legend.map((s) => s.toLowerCase()).filter((w) => w !== pw))];
+    if (sc.legend) return [...new Set(sc.legend.map((s) => s.toLowerCase()).filter((w) => !banned.has(w)))];
     const words = tokenize(sc.text ?? '');
-    return [...new Set(words.filter((w) => w.length >= 4 && !SCRAP_STOP.has(w) && w !== pw))].slice(0, 8);
+    return [...new Set(words.filter((w) => w.length >= 4 && !SCRAP_STOP.has(w) && !banned.has(w)))].slice(0, 8);
   }
   /** Returns true if newly found. */
   findScrap(side: Side, id: string): boolean {
@@ -239,7 +278,7 @@ export class LockSet {
     const o: ObjInfo[] = [];
     for (const [id, t] of this.threadsBySide[side]) o.push({ id, kind: 'thread', label: `m/${t.submolt}`, pos: objectPos(id) });
     o.push({ id: objectId(side, 'codex'), kind: 'codex', label: 'The Codex Stone', pos: objectPos(objectId(side, 'codex')) });
-    o.push({ id: objectId(side, 'board'), kind: side === 'A' ? 'legend' : 'pulse', label: side === 'A' ? 'Eroded Legend' : 'The Census', pos: objectPos(objectId(side, 'board')) });
+    o.push({ id: objectId(side, 'board'), kind: side === 'A' ? 'legend' : 'pulse', label: side === 'A' ? 'The Commons Record' : 'The Census', pos: objectPos(objectId(side, 'board')) });
     o.push({ id: objectId(side, 'takes'), kind: 'takes', label: 'The Verdict Wall', pos: objectPos(objectId(side, 'takes')) });
     o.push({ id: objectId(side, 'terminal'), kind: 'terminal', label: 'Petition Terminal', pos: objectPos(objectId(side, 'terminal')) });
     for (const [id, sc] of this.scraps[side]) o.push({ id, kind: 'scrap', label: this.found[side].has(id) ? sc.title : '', pos: objectPos(id) });
@@ -259,17 +298,12 @@ export class LockSet {
     }
     if (slot === 'codex') {
       const c = this.codex;
-      if (side === 'A' && this.difficulty !== 'easy') {
-        return { kind: 'codex', id: objId, title: c.title, author: c.author, url: c.url, postId: c.postId, lines: this.codexOrderA.map((i) => c.lines[i]), showLineNumbers: false };
-      }
       return { kind: 'codex', id: objId, title: c.title, author: c.author, url: c.url, postId: c.postId, lines: c.lines, showLineNumbers: true };
     }
     if (slot === 'board') {
       if (side === 'A') {
         // eroded: one mapping survives; mappings from found shards are restored
-        const known = new Set([this.legendShown]);
-        for (const id of this.found.A) for (const sub of this.scraps.A.get(id)?.legend ?? []) known.add(sub);
-        return { kind: 'legend', id: objId, runes: this.pulse.entries.filter((e) => known.has(e.submolt)).map((e) => ({ glyph: this.runeOf.get(e.submolt)!, submolt: e.submolt })).sort((a, b) => a.glyph.localeCompare(b.glyph)) };
+        return { kind: 'legend', id: objId, runes: this.pulse.entries.map((e) => ({ glyph: this.runeOf.get(e.submolt)!, submolt: e.submolt })).sort((a, b) => a.glyph.localeCompare(b.glyph)) };
       }
       return { kind: 'pulse', id: objId, snapshotAt: this.pulse.snapshotAt, bars: shuffle(this.pulse.entries).map((e) => ({ submolt: e.submolt, activity: e.activity })) };
     }
@@ -283,15 +317,23 @@ export class LockSet {
   // ---------- lock info ----------
   info(side: Side, partnerNote: Partial<Record<LockId, string>> = {}, banned: string[] = []): LockInfo[] {
     const c = this.codex;
-    const codex: LockInfo =
-      side === 'A'
-        ? { id: 'codex', title: PETITION.codex, prompt: `The Moderator redacted one word from this agent's post: “${c.passWord.toUpperCase()}”. The other Arbiter must enter it. Your courier will never be allowed to say it. Both Codex stones hold the same post — bound differently.`, enterHere: false, input: 'none', status: this.status.codex, partnerStatus: partnerNote.codex }
-        : { id: 'codex', title: PETITION.codex, prompt: 'Enter the word the Moderator redacted. Only the other Arbiter can see it. Your Codex stone holds the same post, bound true.', enterHere: true, input: 'word', status: this.status.codex, partnerStatus: partnerNote.codex };
-    const runes = this.pulse.entries.map((e) => this.runeOf.get(e.submolt)!);
+    const mine = this.secrets[side];
+    const codexPrompt = 'You each have a hidden word your courier can\'t say. Point them to yours on the stone. Type theirs here.';
+    const codex: LockInfo = {
+      id: 'codex',
+      title: PETITION.codex,
+      prompt: this.codexDone[side] && this.status.codex !== 'open' ? `${codexPrompt} You found theirs — now help them find yours.` : codexPrompt,
+      enterHere: !this.codexDone[side],
+      input: 'word',
+      secret: { word: mine.word.toUpperCase(), line: mine.line, wordNo: mine.wordNo },
+      status: this.status.codex,
+      partnerStatus: partnerNote.codex,
+    };
+    const names = this.pulse.entries.map((e) => e.submolt);
     const pulse: LockInfo =
       side === 'A'
-        ? { id: 'pulse', title: PETITION.pulse, prompt: `Enter these ${runes.length} runes in order of today's activity on Moltbook, busiest first. Your legend is eroded — find the missing pieces. Only the other Arbiter can read the Census.`, enterHere: true, input: 'runes', options: shuffle(runes).map((g) => ({ id: g, label: g, glyph: g })), pick: runes.length, status: this.status.pulse, partnerStatus: partnerNote.pulse }
-        : { id: 'pulse', title: PETITION.pulse, prompt: `The other Arbiter holds ${runes.length} runes, one per district. They must enter them busiest first. You hold today's Census.`, enterHere: false, input: 'none', status: this.status.pulse, partnerStatus: partnerNote.pulse };
+        ? { id: 'pulse', title: PETITION.pulse, prompt: 'Put these communities in order, busiest today first. Your partner\'s Census board has the numbers.', enterHere: true, input: 'order', options: shuffle(names).map((n) => ({ id: n, label: `m/${n}` })), pick: names.length, status: this.status.pulse, partnerStatus: partnerNote.pulse }
+        : { id: 'pulse', title: PETITION.pulse, prompt: `Your partner must rank these communities: ${names.map((n) => 'm/' + n).join(', ')}. Send them the order — your Census board has the numbers.`, enterHere: false, input: 'none', status: this.status.pulse, partnerStatus: partnerNote.pulse };
     const vt = this.pack.threads.find((t) => t.id === this.verdict.threadId);
     const common: LockInfo = {
       id: 'common',
@@ -301,6 +343,7 @@ export class LockSet {
       input: 'predict',
       question: this.verdict.question,
       questionUrl: vt?.url,
+      voices: this.verdict.voices,
       status: this.status.common,
       partnerStatus: partnerNote.common,
     };
@@ -314,8 +357,9 @@ export class LockSet {
     return answer.trim().toLowerCase().replace(/[^a-z]/g, '') === this.codex.passWord.toLowerCase();
   }
   checkPulse(answer: string[]): boolean {
-    const want = this.pulse.entries.map((e) => this.runeOf.get(e.submolt)!);
-    return answer.length === want.length && answer.every((g, i) => g === want[i]);
+    const want = this.pulse.entries.map((e) => e.submolt.toLowerCase());
+    const got = answer.map((a) => String(a).toLowerCase().replace(/^m\//, ''));
+    return got.length === want.length && got.every((g, i) => g === want[i]);
   }
   /** Common ground: records this side's pick; returns 'wait' until both picked (20s window). */
   submitCommon(side: Side, takeId: string, now: number): 'wait' | 'open' | 'fail' {
@@ -376,11 +420,12 @@ export class LockSet {
     if (lock === 'codex') {
       const old = this.codex.id;
       this.pickCodex(old);
+      if (this.status.codex !== 'open') this.status.codex = 'locked';
       return this.codex.id === old ? 'the Codex stones shuddered but held' : 'Petition I was refiled: the Codex stones now hold a different post';
     }
     if (lock === 'pulse') {
       this.assignRunes();
-      return 'Petition II was refiled: the runes have been reassigned';
+      return 'Petition II was refiled: the communities have been reshuffled';
     }
     this.shuffleTakes();
     this.commonPicks = {};
@@ -390,7 +435,7 @@ export class LockSet {
 
   /** Short hint for mercy / scout. */
   hint(lock: LockId): string {
-    if (lock === 'codex') return `The Lost Word: true binding, line ${this.codex.lineNo}, word ${this.codex.wordNo}`;
+    if (lock === 'codex') return 'The Lost Word: count lines from the top of the stone, words from the left. Numbers always pass.';
     if (lock === 'pulse') return `The Census: m/${this.pulse.entries[0].submolt} is busiest today`;
     const acc = this.acceptedCommon();
     const d = this.pack.debates.find((x) => x.threadId === acc[0]);

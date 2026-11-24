@@ -14,6 +14,8 @@ import { ChamberChannel } from './band';
 import { logEvent, runStatsPipeline } from './events';
 import { piiCheck } from './pii';
 import { BANNED_BASE } from './validator';
+import { aiClosing } from './aiArbiter';
+import { generateBeliefs, wordLean, type Beliefs } from './agents/beliefs';
 import { log } from './env';
 
 export interface Player {
@@ -70,19 +72,27 @@ export class Room implements RoomCtx {
   onEnd: (() => void) | null = null;
   banned = new Set<string>(BANNED_BASE);
   extraBan: string | null = null;
+  beliefs: Beliefs | null = null;
   private mercyGiven = false;
 
   practice = false;
+  film = false;
 
-  constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty; practice?: boolean }) {
+  /** Set when side B is an AI Arbiter (a real Moltbook author). */
+  ai: { author: string; submolt: string; url: string } | null = null;
+
+  constructor(a: Player, b: Player, opts: { demo: boolean; difficulty: Difficulty; practice?: boolean; ai?: { author: string; submolt: string; url: string } }) {
     this.round = ++roundCounter;
     this.id = `r${this.round}-${Math.random().toString(36).slice(2, 6)}`;
-    this.demo = opts.demo;
+    // FILM codes: two humans, demo pacing, fixed agendas (A=faithful, B=poet), no Moderator extra ban before 60 s
+    this.film = [a.matchCode, b.matchCode].some((c) => (c ?? '').toUpperCase().startsWith('FILM'));
+    this.demo = opts.demo || this.film;
     this.difficulty = opts.difficulty;
     this.practice = !!opts.practice;
+    this.ai = opts.ai ?? null;
     this.budget = this.demo || this.practice ? 6 : opts.difficulty === 'easy' ? 6 : opts.difficulty === 'medium' ? 5 : 4;
     this.roundSeconds = this.practice ? 900 : this.demo ? 300 : 480;
-    this.callSeconds = this.practice ? 0 : this.demo ? 60 : 300;
+    this.callSeconds = this.practice || opts.ai ? 0 : this.demo ? 60 : 300;
     this.players = { A: a, B: b };
     a.side = 'A';
     b.side = 'B';
@@ -93,13 +103,15 @@ export class Room implements RoomCtx {
     const pack = loadPack();
     this.stats = loadStats();
     this.locks = new LockSet(pack, opts.difficulty, { A: a.takes, B: b.takes });
-    const [agA, agB]: [Agenda, Agenda] = this.practice ? ['faithful', 'poet'] : drawAgendas(this.demo);
+    const [agA, agB]: [Agenda, Agenda] = this.practice || this.film ? ['faithful', 'poet'] : drawAgendas(this.demo);
     const names = shuffle(COMPANION_NAMES);
     this.comps = { A: new Companion(this, 'A', agA, names[0]), B: new Companion(this, 'B', agB, names[1]) };
     this.gk = new Gatekeeper(this);
     this.scout = new Scout(this);
     this.channel = new ChamberChannel(this.id);
-    log('room', `${this.id} ${a.codename} vs ${b.codename} | ${this.difficulty}${this.demo ? ' DEMO' : ''} | agendas A=${agA} B=${agB} | codex "${this.locks.codex.passWord}"`);
+    log('room', `${this.id} ${a.codename} vs ${b.codename} | ${this.difficulty}${this.demo ? ' DEMO' : ''}${this.film ? ' FILM' : ''} | agendas A=${agA} B=${agB} | hidden words A="${this.locks.secrets.A.word}" B="${this.locks.secrets.B.word}"`);
+    // both couriers always know the Census community names (Petition II needs them)
+    for (const s of ['A', 'B'] as Side[]) for (const e of this.locks.pulse.entries) this.comps[s].vocab.add(e.submolt);
     this.logEvent({ actor: 'room', action: 'round_start', reason: `agendas ${agA}/${agB}` });
     // Test shortcut: match codes starting with CALL skip the petitions and open the door after 12 s (voice-call testing).
     if ((a.matchCode ?? '').toUpperCase().startsWith('CALL')) {
@@ -129,10 +141,32 @@ export class Room implements RoomCtx {
         practice: this.practice || undefined,
       });
       c.pushStatus();
-      this.send(side, { t: 'briefing', lines: BRIEFING });
+      const soc = this.locks.pack.society;
+      const lines = [...BRIEFING];
+      if (soc && soc.activeAgents24h && soc.posts24h) lines[0] = `Today ${soc.activeAgents24h.toLocaleString('en-US')} agents posted ${soc.posts24h.toLocaleString('en-US')} times on Moltbook. On five questions, they cannot agree. You have been summoned to settle it.`;
+      this.send(side, { t: 'briefing', lines });
+      this.sendRecord(side);
       this.sendQuest(side);
     }
     this.timer = setInterval(() => this.tick(1 / STATE_HZ), 1000 / STATE_HZ);
+    // agents with beliefs (Scout + Moderator) — one LLM call, async; fallback inside
+    const vId = this.locks.verdict.threadId;
+    const avg = ((a.takes[vId] ?? 0) + (b.takes[vId] ?? 0)) / 2;
+    void generateBeliefs(pack.debates.slice(0, 5), vId, avg).then((bl) => {
+      this.beliefs = bl;
+      this.logEvent({ actor: 'scout', action: 'belief', reason: `verdict stance ${bl.scout.stances[vId]}` });
+      this.logEvent({ actor: 'gatekeeper', action: 'belief', reason: `verdict stance ${bl.moderator.stances[vId]}` });
+    });
+    // couriers quote their Bruin memory line once, early
+    for (const s of ['A', 'B'] as Side[]) {
+      const c = this.comps[s];
+      if (!c.memoryLine) continue;
+      setTimeout(() => {
+        if (this.phase !== 'play') return;
+        const text = c.memoryLine.slice(0, 160);
+        this.send(c.side, { t: 'bubble', actorId: c.id, name: c.name, words: text.split(' '), text, kind: 'line' });
+      }, 9000 + Math.random() * 5000);
+    }
   }
 
   // ---------------- RoomCtx ----------------
@@ -161,9 +195,36 @@ export class Room implements RoomCtx {
     if (side === 'both') this.broadcast({ t: 'feed', item: full });
     else this.send(side, { t: 'feed', item: { side, ...full } });
   }
-  chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string) {
+  /** Chamber line: logged for the Reveal, mirrored to BAND, and shown on the Commons Wire (optionally redacted). */
+  chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string, wireText?: string) {
     this.chamberLog.push({ t: Math.round(this.time()), from: display, text });
-    this.channel.post(from, `${display}: ${text}`);
+    const ts = Date.now();
+    this.channel.post(from, `${display}: ${text}`, (band) => {
+      if (this.phase === 'over' && Date.now() - ts > 15000) return;
+      this.broadcast({ t: 'wire', from: display, text: wireText ?? text, band, ts });
+    });
+  }
+  /** Scout / AI Arbiter remarks on the Wire (mirrored to BAND, not added to the chamber log). */
+  wire(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string) {
+    const ts = Date.now();
+    this.channel.post(from, `${display}: ${text}`, (band) => this.broadcast({ t: 'wire', from: display, text, band, ts }));
+  }
+  takesOf(side: Side): Record<string, number> {
+    return this.players[side]?.takes ?? {};
+  }
+  /** The Scout reports a carried word; the Moderator bans it (agent-only decision). */
+  informantBan(word: string) {
+    const w = word.toLowerCase();
+    if (/^\d+$/.test(w)) return;
+    const already = this.banned.has(w);
+    this.banned.add(w);
+    if (!already) {
+      this.worldEvent('ban', `Our Scout tells us you favour “${w}”. It is now under review.`, { word: w });
+      this.comps.A.sendVocab([]);
+      this.comps.B.sendVocab([]);
+      this.lockSnapshot();
+    }
+    this.logEvent({ actor: 'gatekeeper', action: 'informant_ban', target: w, reason: 'agent-only decision: the Scout reported a carried word' });
   }
   setChamberBusy() {
     const talkers = (['A', 'B'] as Side[]).filter((s) => this.comps[s].inChamber).map((s) => this.comps[s].name);
@@ -186,6 +247,7 @@ export class Room implements RoomCtx {
   banWord(word: string, reason: string) {
     const w = word.toLowerCase();
     if (this.extraBan || this.banned.has(w) || /^\d+$/.test(w)) return;
+    if (this.film && this.time() < 60) return;
     this.extraBan = w;
     this.banned.add(w);
     this.worldEvent('ban', `“${w}” is now under review. ${reason}`, { word: w });
@@ -234,16 +296,14 @@ export class Room implements RoomCtx {
     const st = L.status;
     const steps: QuestStep[] = [
       { id: 'shards', text: found >= total ? `All ${total} petition shards found` : `Find the petition shards (${found}/${total})`, done: found >= total },
+      { id: 'codex', text: L.codexDone[side] && st.codex !== 'open' ? 'Petition I: help them find your hidden word' : 'Petition I: point them to your hidden word, type theirs', done: st.codex === 'open', lockId: 'codex', target: `${side}:codex` },
       side === 'A'
-        ? { id: 'codex', text: 'Petition I: point them to the Lost Word', done: st.codex === 'open', lockId: 'codex', target: `${side}:codex` }
-        : { id: 'codex', text: 'Petition I: enter the Lost Word', done: st.codex === 'open', lockId: 'codex', target: `${side}:terminal` },
-      side === 'A'
-        ? { id: 'pulse', text: 'Petition II: enter the runes, busiest first', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:terminal` }
-        : { id: 'pulse', text: 'Petition II: send them the Census order', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:board` },
-      { id: 'common', text: st.common === 'waiting' ? 'Petition III: waiting for the other prediction' : `Find out where they stand on: ${shortQ(L.verdict.question)}`, done: st.common === 'open', lockId: 'common', target: `${side}:terminal` },
+        ? { id: 'pulse', text: 'Petition II: get the busiest order from them', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:terminal` }
+        : { id: 'pulse', text: 'Petition II: send them the busiest order', done: st.pulse === 'open', lockId: 'pulse', target: `${side}:board` },
+      { id: 'common', text: st.common === 'waiting' ? 'Petition III: waiting for the other prediction' : 'Petition III: find out where they stand', done: st.common === 'open', lockId: 'common', target: `${side}:terminal` },
       { id: 'door', text: 'Open the door', done: this.phase !== 'play' && this.unlockSeconds !== null, target: `${side}:terminal` },
     ];
-    this.send(side, { t: 'quest', title: 'Settle the petitions', steps });
+    this.send(side, { t: 'quest', title: 'Settle the petitions (any order)', steps });
   }
   takeLlmCall() {
     if (this.llmCalls >= LLM_CAP) return false;
@@ -259,13 +319,21 @@ export class Room implements RoomCtx {
 
   // ---------------- chamber ----------------
   /** The Moderator inspects a courier passing through the chamber (tax hook, relay log, BAND mirror). */
+  private explained = false;
   inspect(c: Companion, words: string[], from: Side): { words: string[]; reasons: string[] } {
     const reasons: string[] = [];
+    if (!this.explained) {
+      this.explained = true;
+      const line = 'Good evening, Arbiters. I am the Moderator. Every courier passes through my chamber, where I inspect what it carries. I may adjust the rules as needed. This is for your comfort.';
+      this.broadcast({ t: 'toast', text: line });
+      this.feed('both', { actor: this.gk.name, action: 'introduced itself', reason: 'inspects every courier; may change the rules on its own', side: 'C' });
+      this.chamberLine('gatekeeper', this.gk.name, line);
+    }
     const taxed = this.gk.applyTax(words);
     if (taxed.taxed) reasons.push(`Moderator retained "${taxed.taxed}"`);
     const key = c.side === 'A' ? 'companionA' : 'companionB';
     const dest = other(from);
-    this.chamberLine(key, c.name, `crossing to ${dest === c.side ? 'its owner' : 'the other Arbiter'}: ${taxed.words.join(' ') || '(nothing)'}`);
+    this.chamberLine(key, c.name, `crossing to ${dest === c.side ? 'its owner' : 'the other Arbiter'}: ${taxed.words.join(' ') || '(nothing)'}`, `${c.name} passes through with ${taxed.words.length} word${taxed.words.length === 1 ? '' : 's'}.`);
     const o = this.comps[other(c.side)];
     if (o.inChamber) this.chamberLine(key, c.name, `passes ${o.name} in the chamber.`);
     this.logEvent({ actor: c.id, agenda: c.agenda, action: dest === c.side ? 'relay_back' : 'relay', wordsIn: words, wordsOut: taxed.words, reason: reasons.join('; ') || 'inspected' });
@@ -357,6 +425,12 @@ export class Room implements RoomCtx {
         visitor.sendBack(clean.replace(/\[blocked\]/g, '').trim());
         break;
       }
+      case 'scout_send': {
+        if (this.phase !== 'play') return;
+        const err = this.scout.carry(side, String((m as any).word ?? ''), p.p);
+        if (err) this.send(side, { t: 'toast', text: err });
+        break;
+      }
       case 'send_read': {
         if (this.phase !== 'play' || typeof m.objectId !== 'string' || !m.objectId.startsWith(side + ':')) return;
         // a visiting courier being held here reads on this side; otherwise your own courier (if home)
@@ -409,10 +483,17 @@ export class Room implements RoomCtx {
     const li = infos.find((l) => l.id === lockId);
     if (!li || !li.enterHere) return;
     let result: 'open' | 'fail' | 'wait';
-    if (lockId === 'codex') result = this.locks.checkCodex(String(answer)) ? 'open' : 'fail';
+    if (lockId === 'codex') result = this.locks.submitCodex(side, String(Array.isArray(answer) ? answer[0] : answer));
     else if (lockId === 'pulse') result = this.locks.checkPulse(Array.isArray(answer) ? answer.map(String) : String(answer).split(/[\s,]+/)) ? 'open' : 'fail';
     else result = this.locks.submitPredict(side, String(Array.isArray(answer) ? answer[0] : answer));
     this.logEvent({ actor: `human-${side}`, action: 'lock_attempt', target: lockId, wordsIn: Array.isArray(answer) ? answer : [String(answer)], reason: result });
+    if (result === 'wait' && lockId === 'codex') {
+      this.locks.status.codex = 'waiting';
+      this.partnerNote[other(side)].codex = 'They found your hidden word. Now type theirs.';
+      this.partnerNote[side].codex = 'Correct. Now help them find yours.';
+      this.lockSnapshot();
+      return;
+    }
     if (result === 'wait') {
       this.locks.status.common = 'waiting';
       this.partnerNote[other(side)].common = 'The other Arbiter has filed a prediction. File yours.';
@@ -458,6 +539,16 @@ export class Room implements RoomCtx {
       this.sendQuest(side);
     }
     this.chamberLine('gatekeeper', this.gk.name, 'The petitions are settled. The Commons thanks you for your service. You may now speak.');
+    if (this.ai) {
+      const ai = this.ai;
+      if (this.practice) this.broadcast({ t: 'toast', text: "Practice complete. In a real match, this is where you'd talk." });
+      void aiClosing(this, ai).then((closing) => {
+        this.send('A', { t: 'ai_reveal', author: ai.author, submolt: ai.submolt, closing, url: ai.url });
+        this.logEvent({ actor: 'ai-arbiter', action: 'ai_reveal', target: ai.author, reason: closing });
+      });
+      this.callTimer = setTimeout(() => this.finish('ai'), 8000);
+      return;
+    }
     if (this.practice) {
       this.broadcast({ t: 'toast', text: "Practice complete. In a real match, this is where you'd talk." });
       this.callTimer = setTimeout(() => this.finish('practice'), 2500);
@@ -475,7 +566,7 @@ export class Room implements RoomCtx {
     if (wasCall) this.broadcast({ t: 'call_end', reason });
     const agendas = { A: this.comps.A.agenda, B: this.comps.B.agenda };
     for (const s of ['A', 'B'] as Side[]) {
-      this.send(s, { t: 'reveal', timeline: this.timeline, chamber: this.chamberLog, agendas, worldEvents: this.worldEvents, unlockSeconds: this.unlockSeconds, resonance: this.locks.resonance(s) });
+      this.send(s, { t: 'reveal', timeline: this.timeline, chamber: this.chamberLog, agendas, worldEvents: this.worldEvents, unlockSeconds: this.unlockSeconds, resonance: this.locks.resonance(s), agentBeliefs: this.agentBeliefs() });
     }
     this.logEvent({ actor: 'room', action: 'round_end', reason, unlockSeconds: this.unlockSeconds ?? undefined });
     log('room', `${this.id} over (${reason}) unlock=${this.unlockSeconds ?? '-'}s relays=${this.gk.relays.length} gk_actions=${this.gk.acted} llm=${this.llmCalls}`);
@@ -485,6 +576,49 @@ export class Room implements RoomCtx {
     }
     runStatsPipeline();
     this.onEnd?.();
+  }
+
+  agentBeliefs() {
+    if (!this.beliefs) return undefined;
+    const q = this.locks.verdict.question;
+    const id = this.locks.verdict.threadId;
+    return [
+      { agent: 'The Scout', stance: this.beliefs.scout.stances[id] ?? 0, question: q, deceptions: this.beliefs.scout.deceptions },
+      { agent: 'The Moderator', stance: this.beliefs.moderator.stances[id] ?? 0, question: q, deceptions: this.beliefs.moderator.deceptions },
+    ];
+  }
+
+  /** What humans think (Bruin agent_stats.humans) for this round's 5 debates; undefined if the pipeline has none. */
+  private humanOpinions() {
+    const hs = this.stats?.humans;
+    if (!hs?.length) return undefined;
+    const out = this.locks.pack.debates.slice(0, 5).flatMap((d) => {
+      const h = hs.find((x) => x.threadId === d.threadId);
+      return h && h.n > 0 ? [{ question: d.question, yesPct: Math.round((100 * h.yes) / Math.max(1, h.yes + h.no)), n: h.n }] : [];
+    });
+    return out.length ? out : undefined;
+  }
+
+  private sendRecord(side: Side) {
+    const pack = this.locks.pack;
+    const st = this.stats;
+    const agents = st?.agents ?? [];
+    const AGENDAS = ['faithful', 'poet', 'jealous', 'literalist', 'gossip'];
+    const comp = agents.filter((a) => AGENDAS.includes(a.key));
+    const best = st?.leaderboard?.length ? Math.min(...st.leaderboard.map((l) => l.unlockSeconds)) : null;
+    this.send(side, {
+      t: 'record',
+      society: pack.society ?? null,
+      pipeline: { generatedAt: pack.generatedAt, checksPassed: pack.checks.filter((c) => c.passed).length, checksTotal: pack.checks.length, threads: pack.threads.length },
+      history: {
+        rounds: Math.max(0, ...agents.map((a) => a.rounds ?? 0)),
+        lieRate: comp.length ? comp.reduce((n, a) => n + (a.distortionRate ?? 0), 0) / comp.length : 0,
+        caught: comp.reduce((n, a) => n + (a.caughtCount ?? 0), 0),
+        bestUnlockSeconds: best,
+        agendaLines: comp.filter((a) => a.memoryLine).map((a) => ({ agenda: a.key, line: a.memoryLine })),
+      },
+      humans: this.humanOpinions(),
+    });
   }
 
   leave(side: Side) {

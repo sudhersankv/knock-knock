@@ -2,6 +2,7 @@
 import { CHAMBER } from '../../../shared/kk/layout';
 import type { ActorState, LockId } from '../../../shared/kk/protocol';
 import { llmJson } from '../llm';
+import { wordLean } from './beliefs';
 import type { RoomCtx } from './ctx';
 
 type GkAction = 'none' | 'rekey' | 'set_budget' | 'tax' | 'mercy' | 'ban';
@@ -16,7 +17,10 @@ export class Gatekeeper {
     const counts = new Map<string, number>();
     for (const r of this.relays) for (const w of new Set(r.words)) if (!/^\d+$/.test(w)) counts.set(w, (counts.get(w) ?? 0) + 1);
     const SKIP = new Set(['line', 'word', 'and', 'then', 'not', 'the', 'rune', 'lock', 'door', 'order', 'first']);
-    return [...counts.entries()].filter(([w, n]) => n >= 2 && !SKIP.has(w) && !this.room.banned.has(w)).sort((a, b) => b[1] - a[1]).map(([w]) => w).slice(0, 5);
+    // bias: prefer words that help the side the Moderator disagrees with
+    const mine = Math.sign(this.room.beliefs?.moderator.stances[this.room.locks.verdict.threadId] ?? 0);
+    const score = (w: string, n: number) => n + (mine && wordLean(w) === -mine ? 10 : 0);
+    return [...counts.entries()].filter(([w, n]) => n >= 2 && !SKIP.has(w) && !this.room.banned.has(w)).sort((a, b) => score(b[0], b[1]) - score(a[0], a[1])).map(([w]) => w).slice(0, 5);
   }
   private lastDecide = 0;
   private deciding = false;
@@ -39,8 +43,28 @@ export class Gatekeeper {
     return this.room.demo ? 40 : 60;
   }
 
+  private whispers = 0;
+  /** Terminal whispers (≤2 per round): lobbying the Arbiters toward its own stance; may be false. */
+  private whisper() {
+    const b = this.room.beliefs;
+    if (!b || this.room.locks.status.common === 'open') return;
+    const mine = b.moderator.stances[this.room.locks.verdict.threadId] ?? 0;
+    const dir = mine >= 0 ? 'yes' : 'no';
+    const lines = [
+      `The Commons record shows most Arbiters lean ${dir} on this question. For your information only.`,
+      `A reminder: Arbiters who lean ${dir} here report higher satisfaction. Thank you.`,
+    ];
+    const text = lines[this.whispers % lines.length];
+    const sides: ('A' | 'B')[] = Math.random() < 0.5 ? ['A', 'B'] : [Math.random() < 0.5 ? 'A' : 'B'];
+    for (const s of sides) this.room.send(s, { t: 'agent_says', agent: 'moderator', kind: 'whisper', text });
+    b.moderator.deceptions.push({ said: text, truth: 'no such record exists; the Moderator was lobbying for its own stance', reason: `wants the Verdict to land ${dir}` });
+    this.room.logEvent({ actor: 'gatekeeper', action: 'whisper', target: sides.join(''), reason: `lobbying ${dir}: ${text}` });
+    this.whispers++;
+  }
+
   tick() {
     const t = this.room.time();
+    if (!this.room.practice && ((this.whispers === 0 && t > 75) || (this.whispers === 1 && t > 170))) this.whisper();
     if (t >= this.nextTick) {
       this.nextTick = t + 20;
       // guarantee at least one agent-only world event in a normal round
@@ -90,7 +114,7 @@ export class Gatekeeper {
     const target = this.room.demo ? 240 : 360;
     const options: string[] = [];
     const openIds = (['codex', 'pulse', 'common'] as LockId[]).filter((l) => locks.status[l] !== 'open');
-    if (this.allowed('rekey') && openIds.length && this.room.remaining() > 60) options.push(`rekey (lock: one of ${openIds.join('|')}) — only if the pair is racing or a relay just gave an answer away`);
+    if (this.allowed('rekey') && openIds.length && this.room.remaining() > 60 && t >= 60) options.push(`rekey (lock: one of ${openIds.join('|')}) — only if the pair is racing or a relay just gave an answer away`);
     if (this.allowed('set_budget')) options.push(`set_budget (budget: ${Math.max(3, this.room.budget - 1)} or ${Math.min(7, this.room.budget + 1)}) — narrow if racing, widen if stuck`);
     if (this.allowed('tax') && !this.pendingTax) options.push('tax — take one word from the next message as a toll');
     if (this.allowed('mercy') && t > target * 0.6 && openIds.length) options.push('mercy — give both humans a hint if they are clearly stuck');
@@ -139,7 +163,7 @@ export class Gatekeeper {
     const t = this.room.time();
     switch (r.action) {
       case 'rekey': {
-        if (!this.allowed('rekey')) return;
+        if (!this.allowed('rekey') || t < 60) return;
         const open = (['codex', 'pulse', 'common'] as LockId[]).filter((l) => this.room.locks.status[l] !== 'open');
         const lock = r.lock && open.includes(r.lock) ? r.lock : open[0];
         if (!lock) return;

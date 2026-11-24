@@ -22,7 +22,11 @@ export function startPractice(human: Player) {
     takes[d.threadId] = h ? -Math.sign(h) * (Math.random() < 0.5 ? 2 : 1) : Math.random() < 0.5 ? 2 : -2;
   }
   const bot: Player = { id: `bot-${Math.random().toString(36).slice(2, 6)}`, ws: fakeWs, codename: codename(), takes, interests: human.interests.slice(0, 2), demo: true, room: null, p: [...at('B', 'spawn')] as V2, ry: 0, anim: 'idle' };
-  const room = new Room(human, bot, { demo: true, difficulty: 'easy', practice: true });
+  const pk = loadPack();
+  const debateIds = new Set(pk.debates.map((d) => d.threadId));
+  const pool = pk.threads.filter((t) => t.author && !debateIds.has(t.id));
+  const pt = pool[Math.floor(Math.random() * pool.length)] ?? pk.threads[0];
+  const room = new Room(human, bot, { demo: true, difficulty: 'easy', practice: true, ai: { author: pt.author, submolt: pt.submolt, url: pt.url } });
   brain.attach(room, bot);
   // the bot's courier knows a few friendly words so its first hello survives the keyhole
   for (const w of ['hello', 'arbiter', 'numbers', 'pass', 'opinions', 'friend']) room.comps.B.vocab.add(w);
@@ -120,7 +124,8 @@ class PracticeBrain {
     const c = this.room.comps.A;
     if (c.at !== 'B' || !c.held) return;
     const parts: string[] = [];
-    if (this.status('codex') !== 'open' && !this.humanSentNumbers) parts.push('send line number and word number');
+    const L = this.room.locks;
+    if (this.status('codex') !== 'open' && !L.codexDone.A) parts.push(`my word: line ${L.secrets.B.line} word ${L.secrets.B.wordNo}`);
     else if (this.status('pulse') !== 'open') {
       parts.push(`busiest ${this.room.locks.pulse.entries.map((e) => e.submolt).join(' then ')}`);
     } else {
@@ -136,10 +141,10 @@ class PracticeBrain {
   }
 
   private maybeEnterCodex() {
-    if (this.codexScheduled || !this.humanSentNumbers || this.status('codex') === 'open') return;
+    if (this.codexScheduled || !this.humanSentNumbers || this.status('codex') === 'open' || this.room.locks.codexDone.B) return;
     this.codexScheduled = true;
     this.later(rand(5, 8), () => {
-      this.act({ t: 'lock_submit', lockId: 'codex', answer: this.room.locks.codex.passWord });
+      this.act({ t: 'lock_submit', lockId: 'codex', answer: this.room.locks.secrets.A.word });
     });
   }
 

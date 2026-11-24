@@ -22,7 +22,11 @@ export interface RoomCtx {
   send(side: Side, msg: S2C): void;
   broadcast(msg: S2C): void;
   feed(side: Side | 'both', item: Omit<FeedItem, 't'>): void;
-  chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string): void;
+  chamberLine(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string, wireText?: string): void;
+  wire(from: 'gatekeeper' | 'companionA' | 'companionB' | 'scout', display: string, text: string): void;
+  takesOf(side: Side): Record<string, number>;
+  informantBan(word: string): void;
+  beliefs: import('./beliefs').Beliefs | null;
   setChamberBusy(): void;
   /** Moderator inspection of a courier crossing the chamber; returns the words that survive. */
   inspect(c: Companion, words: string[], from: Side): { words: string[]; reasons: string[] };

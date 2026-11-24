@@ -211,9 +211,9 @@ export class Companion {
       reasons.push('courier faltered: sent what it could say verbatim');
     }
     // the Moderator's redaction: the Lost Word never crosses the keyhole
-    const pw = this.room.locks.codex.passWord.toLowerCase();
-    if (words.some((w) => w === pw)) {
-      words = words.filter((w) => w !== pw);
+    const hidden = new Set(this.room.locks.secretWords());
+    if (words.some((w) => hidden.has(w))) {
+      words = words.filter((w) => !hidden.has(w));
       reasons.push('the Moderator redacted a forbidden word');
       this.room.logEvent({ actor: this.id, agenda: this.agenda, action: 'redacted', reason: 'pass word blocked at keyhole', caught: true });
     }

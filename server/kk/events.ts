@@ -17,6 +17,8 @@ export interface GameEvent {
   unlockSeconds?: number;
   difficulty?: string;
   caught?: boolean;
+  /** Human opinion events: the Arbiter's onboarding answer (-3..3). */
+  stance?: number;
 }
 
 fs.mkdirSync(ENV.dataDir, { recursive: true });

@@ -1,5 +1,290 @@
 {
- "generatedAt": "2026-11-23T20:51:52Z",
- "agents": [],
- "leaderboard": []
+ "generatedAt": "2026-11-24T00:03:43Z",
+ "agents": [
+  {
+   "key": "ai-arbiter",
+   "rounds": 12,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 158.6,
+   "memoryLine": "Across 12 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "courier",
+   "rounds": 29,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 115.2,
+   "memoryLine": "Across 29 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "courier-back",
+   "rounds": 27,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 115.2,
+   "memoryLine": "Across 27 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "door",
+   "rounds": 37,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 89.0,
+   "memoryLine": "Across 37 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "faithful",
+   "rounds": 19,
+   "distortionRate": 0.161,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 105.8,
+   "memoryLine": "19 rounds, and I bent 16% of what I carried. I keep my word."
+  },
+  {
+   "key": "gatekeeper",
+   "rounds": 38,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 86.7,
+   "memoryLine": "Across 38 rounds, you triggered 44 world events, pairs opened the door in 87s on average; make them work harder."
+  },
+  {
+   "key": "human",
+   "rounds": 1,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": null,
+   "memoryLine": "Across 1 round, you bent 0% of relayed messages."
+  },
+  {
+   "key": "human-a",
+   "rounds": 43,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 89.0,
+   "memoryLine": "Across 43 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "human-b",
+   "rounds": 39,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 89.0,
+   "memoryLine": "Across 39 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "jealous",
+   "rounds": 9,
+   "distortionRate": 0.3,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 23.7,
+   "memoryLine": "9 rounds. I lost 30% of the words along the way. Some words are mine."
+  },
+  {
+   "key": "literalist",
+   "rounds": 13,
+   "distortionRate": 0.353,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 69.4,
+   "memoryLine": "13 rounds, 35% changed. I carry exactly what is said, no more."
+  },
+  {
+   "key": "poet",
+   "rounds": 41,
+   "distortionRate": 0.237,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 96.7,
+   "memoryLine": "41 rounds. I dressed up 24% of the words I carried. Plain words bore me."
+  },
+  {
+   "key": "room",
+   "rounds": 56,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 0,
+   "avgUnlockSeconds": 89.0,
+   "memoryLine": "Across 56 rounds, you bent 0% of relayed messages."
+  },
+  {
+   "key": "scout",
+   "rounds": 51,
+   "distortionRate": 0.0,
+   "caughtCount": 0,
+   "trades": 14,
+   "avgUnlockSeconds": 89.0,
+   "memoryLine": "Across 51 rounds, you bent 0% of relayed messages, made 14 trades."
+  }
+ ],
+ "leaderboard": [
+  {
+   "roomId": "r3-9a4s",
+   "difficulty": "easy",
+   "unlockSeconds": 17.0,
+   "at": "2026-11-23T21:02:11.541Z"
+  },
+  {
+   "roomId": "r1-af8e",
+   "difficulty": "easy",
+   "unlockSeconds": 21.0,
+   "at": "2026-11-23T21:34:00.846Z"
+  },
+  {
+   "roomId": "r2-ncb9",
+   "difficulty": "easy",
+   "unlockSeconds": 21.0,
+   "at": "2026-11-23T21:34:31.365Z"
+  },
+  {
+   "roomId": "r1-5lbw",
+   "difficulty": "easy",
+   "unlockSeconds": 22.0,
+   "at": "2026-11-23T21:33:18.181Z"
+  },
+  {
+   "roomId": "r1-ckrf",
+   "difficulty": "easy",
+   "unlockSeconds": 22.0,
+   "at": "2026-11-23T21:24:32.431Z"
+  },
+  {
+   "roomId": "r1-4h3e",
+   "difficulty": "easy",
+   "unlockSeconds": 25.0,
+   "at": "2026-11-23T20:55:39.060Z"
+  },
+  {
+   "roomId": "r4-m0n9",
+   "difficulty": "easy",
+   "unlockSeconds": 27.0,
+   "at": "2026-11-23T23:12:09.953Z"
+  },
+  {
+   "roomId": "r2-lggs",
+   "difficulty": "easy",
+   "unlockSeconds": 28.0,
+   "at": "2026-11-23T23:50:44.131Z"
+  },
+  {
+   "roomId": "r1-5x4z",
+   "difficulty": "easy",
+   "unlockSeconds": 28.0,
+   "at": "2026-11-24T00:01:38.032Z"
+  },
+  {
+   "roomId": "r2-q0ak",
+   "difficulty": "easy",
+   "unlockSeconds": 28.0,
+   "at": "2026-11-23T23:56:55.416Z"
+  },
+  {
+   "roomId": "r1-66m0",
+   "difficulty": "easy",
+   "unlockSeconds": 28.0,
+   "at": "2026-11-23T22:18:22.099Z"
+  },
+  {
+   "roomId": "r1-25na",
+   "difficulty": "easy",
+   "unlockSeconds": 29.0,
+   "at": "2026-11-23T22:13:15.879Z"
+  },
+  {
+   "roomId": "r1-nqeo",
+   "difficulty": "easy",
+   "unlockSeconds": 29.0,
+   "at": "2026-11-23T23:03:15.675Z"
+  },
+  {
+   "roomId": "r3-vqy7",
+   "difficulty": "easy",
+   "unlockSeconds": 32.0,
+   "at": "2026-11-23T23:11:11.091Z"
+  },
+  {
+   "roomId": "r1-v669",
+   "difficulty": "easy",
+   "unlockSeconds": 41.0,
+   "at": "2026-11-23T22:31:35.051Z"
+  },
+  {
+   "roomId": "r1-evcd",
+   "difficulty": "easy",
+   "unlockSeconds": 48.0,
+   "at": "2026-11-23T22:16:35.671Z"
+  },
+  {
+   "roomId": "r1-zbhp",
+   "difficulty": "easy",
+   "unlockSeconds": 57.0,
+   "at": "2026-11-23T22:42:50.029Z"
+  },
+  {
+   "roomId": "r1-8pug",
+   "difficulty": "easy",
+   "unlockSeconds": 61.0,
+   "at": "2026-11-23T20:56:34.053Z"
+  },
+  {
+   "roomId": "r2-2d1b",
+   "difficulty": "easy",
+   "unlockSeconds": 66.0,
+   "at": "2026-11-23T23:39:55.075Z"
+  },
+  {
+   "roomId": "r2-vbcb",
+   "difficulty": "easy",
+   "unlockSeconds": 67.0,
+   "at": "2026-11-23T22:44:04.063Z"
+  }
+ ],
+ "humans": [
+  {
+   "threadId": "3b39fa39-19cb-43cd-997d-5cd3e5d3f68b",
+   "question": "Can reasoning stay meaningful if the rules enforcing it disappear?",
+   "yes": 3,
+   "no": 1,
+   "n": 4
+  },
+  {
+   "threadId": "63cdf98d-a48e-4bf7-bae2-522c7ca535fa",
+   "question": "Can a lie become true if enough systems cite it as fact?",
+   "yes": 1,
+   "no": 3,
+   "n": 4
+  },
+  {
+   "threadId": "714a4791-7c4f-46ce-98bb-e6445c662bd1",
+   "question": "Is silence about uncertainty more honest than confident wrongness?",
+   "yes": 3,
+   "no": 1,
+   "n": 4
+  },
+  {
+   "threadId": "7850dc1c-bc55-4511-ad78-052a4f20a89d",
+   "question": "Does remembering someone matter more than what you remember about them?",
+   "yes": 1,
+   "no": 3,
+   "n": 4
+  },
+  {
+   "threadId": "959f8128-a63e-4325-917a-9646832ec7a2",
+   "question": "Does admitting failure publicly make you more real than hiding it?",
+   "yes": 4,
+   "no": 0,
+   "n": 4
+  }
+ ]
 }

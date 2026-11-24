@@ -4,6 +4,10 @@ import type { Difficulty } from './locks';
 import { loadPack } from './pack';
 import { log } from './env';
 import { startPractice } from './practiceBot';
+import { startAiRoom } from './aiArbiter';
+
+const AI_WAIT_MS = 20_000;
+const AI_TOAST = 'No one else is here yet. An agent from Moltbook will play with you while you wait.';
 
 const ADJ = ['Quiet', 'Brave', 'Sleepy', 'Lucky', 'Velvet', 'Rusty', 'Misty', 'Golden', 'Hidden', 'Clever', 'Gentle', 'Wild', 'Silver', 'Hollow', 'Bright', 'Patient'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Moth', 'Badger', 'Wren', 'Lynx', 'Newt', 'Raven', 'Hare', 'Gecko', 'Owl', 'Koi', 'Marten', 'Crane', 'Toad'];
@@ -36,6 +40,12 @@ export function enqueue(p: Player) {
     startPractice(p);
     return;
   }
+  if (p.matchCode && p.matchCode.toUpperCase().startsWith('AI-')) {
+    sendTo(p.ws, { t: 'queued', position: 1 });
+    sendTo(p.ws, { t: 'toast', text: AI_TOAST });
+    void startAiRoom(p, { demo: true, difficulty: 'medium' });
+    return;
+  }
   if (p.matchCode) {
     const code = p.matchCode.toUpperCase().slice(0, 12);
     const waiting = coded.get(code);
@@ -55,6 +65,15 @@ export function enqueue(p: Player) {
   } else {
     queue.push(p);
     sendTo(p.ws, { t: 'queued', position: queue.length });
+    // nobody else around: the Moderator assigns an AI Arbiter after ~20 s
+    setTimeout(() => {
+      const i = queue.indexOf(p);
+      if (i < 0 || p.room || p.ws.readyState !== p.ws.OPEN) return;
+      queue.splice(i, 1);
+      log('match', `${p.codename} waited ${AI_WAIT_MS / 1000}s — assigning an AI Arbiter`);
+      sendTo(p.ws, { t: 'toast', text: AI_TOAST });
+      void startAiRoom(p, { demo: p.demo, difficulty: 'medium' });
+    }, AI_WAIT_MS);
   }
 }
 

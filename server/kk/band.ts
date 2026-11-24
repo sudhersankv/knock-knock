@@ -90,21 +90,23 @@ export class ChamberChannel {
   }
 
   /** Mirror one chamber line. `from` is the speaking agent; it @mentions the others. */
-  post(from: AgentKey, text: string) {
+  post(from: AgentKey, text: string, done?: (ok: boolean) => void) {
     this.queue = this.queue.then(async () => {
-      if (!this.chatId || !live) return;
-      const me = agents[from];
-      if (!me) return;
-      const others = (['gatekeeper', 'companionA', 'companionB'] as AgentKey[]).filter((k) => k !== from && agents[k]).map((k) => agents[k]!);
-      if (!others.length) return;
-      const content = `${others.map((o) => `@${o.name.replace(/\s+/g, '')}`).join(' ')} ${text}`.slice(0, 2000);
+      let ok = false;
       try {
+        if (!this.chatId || !live) return;
+        const me = agents[from];
+        if (!me) return;
+        const others = (['gatekeeper', 'companionA', 'companionB', 'scout'] as AgentKey[]).filter((k) => k !== from && agents[k]).map((k) => agents[k]!);
+        if (!others.length) return;
         await api(`/agent/chats/${this.chatId}/messages`, me.api_key, 'POST', {
           message: { content: text.slice(0, 2000), mentions: others.map((o) => ({ id: o.id })) },
         });
+        ok = true;
       } catch (e: any) {
         log('band', `post failed: ${e?.message}`);
-        void content;
+      } finally {
+        done?.(ok);
       }
     });
   }

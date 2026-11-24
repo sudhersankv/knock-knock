@@ -49,6 +49,8 @@ export function showLanding(): Promise<LandingResult> {
     const fold = h('button', { class: 'linkish' }, 'Play with someone you know');
     const howBtn = h('button', { class: 'linkish' }, 'How to play');
     const practiceBtn = h('button', { class: 'linkish' }, 'Practice round');
+    const commonsBtn = h('button', { class: 'linkish' }, 'The Commons');
+    commonsBtn.onclick = () => window.open('/commons', '_blank');
     const startPractice = () => {
       if (!age.checked) {
         age.closest('label')?.classList.add('nudge');
@@ -81,7 +83,7 @@ export function showLanding(): Promise<LandingResult> {
         h('div', { style: 'height:6px' }),
         h('label', { class: 'agegate' }, age, 'I’m 18 or older'),
         go,
-        h('div', { class: 'row', style: 'display:flex; gap:22px; justify-content:center; flex-wrap:wrap' }, howBtn, practiceBtn, fold),
+        h('div', { class: 'row', style: 'display:flex; gap:22px; justify-content:center; flex-wrap:wrap' }, howBtn, practiceBtn, fold, commonsBtn),
         codeRow,
         h('p', { class: 'fine' }, 'Voice only after the door opens. Codenames only. Hang up anytime.'),
       ),

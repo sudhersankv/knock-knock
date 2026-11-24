@@ -169,7 +169,7 @@ function commonsData() {
       else if (e.stance < 0) h.no++;
     }
   } catch {
-    for (const x of stats?.humans ?? []) humans[x.threadId] = { yes: x.yes, no: x.no, n: x.n };
+    // no event log yet on this machine: no human answers recorded so far
   }
   const threads: Record<string, any> = {};
   for (const t of pack.threads ?? []) threads[t.id] = t;

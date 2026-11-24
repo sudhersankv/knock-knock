@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
-import { ENV, log } from './env';
+import { ENV, log, DATA } from './env';
 import type { C2S } from '../../shared/kk/protocol';
 import { sendTo, type Player } from './room';
 import { enqueue, dequeue, codename, INTERESTS } from './match';
@@ -85,8 +85,10 @@ wss.on('connection', (ws) => {
       p.demo = !!m.demo || !!p.matchCode;
       // the human-opinions loop: every answered debate becomes a Bruin event ("what humans think")
       const qs = new Map(pack.debates.slice(0, 5).map((d) => [d.threadId, d.question]));
+      // Test traffic (scripted bots, demo/film/practice codes) never counts as human opinion.
+      const isTest = /^(bot|practicer)/i.test(String(m.codename ?? '')) || /^(sane|bot|prod|film|ai-|practice|kkv|call|test|url|ban)/i.test(p.matchCode ?? '');
       for (const [id, v] of Object.entries(p.takes)) {
-        if (!qs.has(id) || !v) continue;
+        if (isTest || !qs.has(id) || !v) continue;
         logEvent({ roomId: '', round: 0, actor: 'human', action: 'opinion', target: id, reason: qs.get(id)!, stance: v });
       }
       enqueue(p);
@@ -154,8 +156,21 @@ function handleStt(req: http.IncomingMessage, res: http.ServerResponse) {
 function commonsData() {
   const pack = loadPack() as any;
   const stats = loadStats() as any;
+  // Live tally straight from the event log (the same rule the Bruin human_opinions asset applies offline).
   const humans: Record<string, { yes: number; no: number; n: number }> = {};
-  for (const x of stats?.humans ?? []) humans[x.threadId] = { yes: x.yes, no: x.no, n: x.n };
+  try {
+    for (const line of fs.readFileSync(DATA('events.ndjson'), 'utf8').split(String.fromCharCode(10))) {
+      if (!line.includes('"opinion"')) continue;
+      const e = JSON.parse(line);
+      if (e.actor !== 'human' || e.action !== 'opinion' || typeof e.stance !== 'number') continue;
+      const h = (humans[e.target] ??= { yes: 0, no: 0, n: 0 });
+      h.n++;
+      if (e.stance > 0) h.yes++;
+      else if (e.stance < 0) h.no++;
+    }
+  } catch {
+    for (const x of stats?.humans ?? []) humans[x.threadId] = { yes: x.yes, no: x.no, n: x.n };
+  }
   const threads: Record<string, any> = {};
   for (const t of pack.threads ?? []) threads[t.id] = t;
   const checks = pack.checks ?? [];

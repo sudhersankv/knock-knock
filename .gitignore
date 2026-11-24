@@ -19,3 +19,5 @@ logs/
 shots/
 data/raw/
 !.env.example
+
+data/band_agents.json
